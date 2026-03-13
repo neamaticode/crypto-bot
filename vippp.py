@@ -53,6 +53,7 @@ import logging
 import os
 import random
 import sys
+import time
 import traceback
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -758,7 +759,7 @@ class AIEngine:
             X, y = await self.db.get_ai_training_data()
             if X is None:
                 return False
-            if len(set(y)) <= 1:
+            if len(set(y)) < 2:
                 logger.warning('AI training skipped: target array has only one unique class')
                 return False
             X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
@@ -1368,8 +1369,7 @@ class CryptoSignalBot:
             return None
 
     async def _price(self, symbol: str) -> Optional[float]:
-        import time as _time
-        now = _time.monotonic()
+        now = time.monotonic()
         if symbol in self._ticker_cache:
             p, ts = self._ticker_cache[symbol]
             if now - ts < self._CACHE_TTL:
@@ -1810,7 +1810,10 @@ class CryptoSignalBot:
                     logger.error('Main loop error: %s\n%s', exc, traceback.format_exc())
                     await asyncio.sleep(30)
         finally:
-            await self.exchange.close()
+            try:
+                await self.exchange.close()
+            except Exception as exc:
+                logger.warning('Error closing exchange: %s', exc)
 
 
 # ============================================================
