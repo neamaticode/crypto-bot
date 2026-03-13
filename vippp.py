@@ -1090,47 +1090,42 @@ class TelegramFormatter:
     # ── Signal ──────────────────────────────────────────────
     @staticmethod
     def signal(sig: Dict, sig_id: int) -> str:
-        d      = sig['direction']
-        emoji  = '🟢 LONG' if d == 'LONG' else '🔴 SHORT'
-        conf   = sig['confidence']
-        entry  = sig['entry']
-        sl     = sig['sl']
-        tp1    = sig['tp1']; tp2 = sig['tp2']; tp3 = sig['tp3']
-        pos    = sig.get('position_size', 0)
-        fr     = sig.get('funding_rate', 0.0)
-        sess   = sig.get('session_type', TelegramFormatter._session())
-        regime = sig.get('market_regime', '❓')
-        sl_d   = abs(sl - entry)
-        rr1    = round(abs(tp1 - entry) / sl_d, 1) if sl_d > 0 else 0
-        rr2    = round(abs(tp2 - entry) / sl_d, 1) if sl_d > 0 else 0
-        rr3    = round(abs(tp3 - entry) / sl_d, 1) if sl_d > 0 else 0
-        reas   = sig.get('reasons', [])
+        d = sig['direction']
+        emoji = '🟢 LONG' if d == 'LONG' else '🔴 SHORT'
+        conf = sig['confidence']
+        entry = sig['entry']
+        sl = sig['sl']
+        tp1 = sig['tp1']; tp2 = sig['tp2']; tp3 = sig['tp3']
+        pos = sig.get('position_size', 0)
+        regime = sig.get('market_regime', '📉 Downward')
+        reas = sig.get('reasons', [])
         if isinstance(reas, str):
             reas = json.loads(reas)
-        reas_txt = '\n'.join(f'  {r}' for r in reas[:7])
-        bar    = TelegramFormatter._bar(conf)
+        reas_txt = ' & '.join(reas[:2]).replace('✅', '').replace('⚠️', '').strip()
+
+        # Clean symbol: BTC/USDT:USDT -> #BTCUSDT
+        raw_sym = sig['symbol']
+        clean_sym = f"#{raw_sym.split(':')[0].replace('/', '')}"
+
+        direction_text = "LONG SETUP" if d == 'LONG' else "SHORT SETUP"
+        emoji_trend = "📈" if d == 'LONG' else "📉"
+
         return (
-            f'💎 <b>VIP SIGNAL #{sig_id:04d}</b> ��\n'
-            f'━━━━━━━━━━━━━━━━━━━━━━━\n'
-            f'🎯 <b>{sig["symbol"]}</b>  |  {emoji}\n'
-            f'📊 Confidence: <code>{bar}</code>\n'
-            f'━━━━━━━━━━━━━━━━━━━━━━━\n'
-            f'💰 <b>Entry :</b> <code>${entry:.4f}</code>\n'
-            f'🎯 <b>TP 1  :</b> <code>${tp1:.4f}</code>  <i>RR {rr1}x</i>\n'
-            f'🎯 <b>TP 2  :</b> <code>${tp2:.4f}</code>  <i>RR {rr2}x</i>\n'
-            f'🏆 <b>TP 3  :</b> <code>${tp3:.4f}</code>  <i>RR {rr3}x</i>\n'
-            f'🛡 <b>Stop  :</b> <code>${sl:.4f}</code>\n'
-            f'━━━━━━━━━━━━━━━━━━━━━━━\n'
-            f'⚡ <b>Leverage :</b> {LEVERAGE}x\n'
-            f'💵 <b>Position :</b> ${pos:.0f} USDT\n'
-            f'📈 <b>Funding  :</b> {fr*100:.4f}%\n'
-            f'🕐 <b>Session  :</b> {sess}\n'
-            f'📊 <b>Regime   :</b> {regime}\n'
-            f'━━━━━━━━━━━━━━━━━━━━━━━\n'
-            f'📋 <b>Analysis:</b>\n{reas_txt}\n'
-            f'━━━━━━━━━━━━━━━━━━━━━━━\n'
-            f'⚠️ <i>Always manage your risk. Not financial advice.</i>\n'
-            f'🤖 <i>VIP Crypto Signal Bot v2.0</i>'
+            f'{emoji_trend} <b>{direction_text}: {clean_sym}</b>\n'
+            f'━━━━━━━━━━━━━━━━━━━━\n'
+            f'🔻 <b>Entry Zone :</b> <code>{entry:.4f}</code>\n'
+            f'⛔️ <b>Stop Loss  :</b> <code>{sl:.4f}</code>\n\n'
+            f'🎯 <b>Take Profit Targets:</b>\n'
+            f'• TP1: <code>{tp1:.4f}</code> (Safe)\n'
+            f'• TP2: <code>{tp2:.4f}</code> (Mid)\n'
+            f'• TP3: <code>{tp3:.4f}</code> (Max)\n\n'
+            f'📐 <b>Trade Info:</b>\n'
+            f'Leverage: 20x\n'
+            f'Win Prob: {conf:.0f}%\n'
+            f'Market:   {regime}\n\n'
+            f'💡 <b>Signal Catalyst:</b>\n'
+            f'{reas_txt}.\n\n'
+            f'@NovaCryptoSignal'
         )
 
     @staticmethod
