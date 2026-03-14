@@ -1,31 +1,27 @@
- copilot/update-telegram-message-format
-
 # -*- coding: utf-8 -*-
- main
 """
-VIP Crypto Signal Bot v2.0 — Ultra Professional Edition
-=========================================================
+VIP Crypto Signal Bot v3.0 — Ultra Sniper Edition
+===================================================
 Author : VIP Bot
 License: MIT
 
 Single-file professional cryptocurrency futures signal bot featuring:
-  • 16+ technical indicators
-  • Smart Money Concepts (Order Blocks, FVG, Liquidity, BOS/CHoCH, Divergence)
-  • Multi-timeframe analysis (15m / 1h / 4h / 1d)
-  • AI ensemble model (GradientBoosting + RandomForest)
-  • Advanced risk management (1% risk, trailing stop, breakeven, partial TPs)
-  • Professional Telegram signals with HTML formatting
-  • Daily / Weekly / Monthly reports (Afghanistan timezone UTC+4:30)
+  • Ultra-strict "Sniper" signal logic (High Win-Rate, low SL frequency)
+  • Multi-Timeframe (MTF) alignment across 15m / 1h / 4h / 1d
+  • ADX > 25 trend-strength gate + clear MACD momentum
+  • Order Block (OB) + Fair Value Gap (FVG) confluence required
+  • Confidence threshold >= 91% before emitting any signal
+  • Wide ATR-based SL (2.5x ATR) to avoid premature stop-outs
+  • Telegram reply system: TP/SL messages reply to the original signal
+  • Daily + Weekly performance reports
   • SQLite persistence layer
 """
 
 # ============================================================
-# CONFIGURATION  ─ edit these before running
-# You may also set the corresponding environment variables
-# (TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, BINANCE_API_KEY,
-#  BINANCE_SECRET) and the values below are used as fallbacks.
+# CONFIGURATION
 # ============================================================
 import os as _os
+
 TELEGRAM_TOKEN          = _os.environ.get('TELEGRAM_TOKEN',   '')
 TELEGRAM_CHAT_ID        = _os.environ.get('TELEGRAM_CHAT_ID', '')
 DB_NAME                 = 'crypto_bot_data.db'
@@ -33,18 +29,18 @@ INITIAL_ACCOUNT_BALANCE = 5000.0
 LEVERAGE                = 20
 
 API_CONFIG = {
-    'apiKey'     : _os.environ.get('BINANCE_API_KEY', ''),    # ← Set BINANCE_API_KEY env var or fill in here
-    'secret'     : _os.environ.get('BINANCE_SECRET',  ''),    # ← Set BINANCE_SECRET env var or fill in here
+    'apiKey'     : _os.environ.get('BINANCE_API_KEY', ''),
+    'secret'     : _os.environ.get('BINANCE_SECRET',  ''),
     'defaultType': 'future',
     'options'    : {'defaultType': 'future'},
 }
-del _os  # clean up the temporary import alias
+del _os
 
-# ── Runtime limits ───────────────────────────────────────────
-MIN_CONFIDENCE  = 75     # minimum confidence % to emit a signal
-MIN_AGREEMENTS  = 5      # minimum indicator categories that must agree
-MAX_OPEN_TRADES = 8      # maximum simultaneous positions
-SIGNAL_COOLDOWN = 240    # minutes between signals on the same symbol
+# Runtime limits
+MIN_CONFIDENCE  = 91     # >= 91% confidence required before emitting a signal
+MIN_AGREEMENTS  = 7      # >= 7 independent indicator categories must agree
+MAX_OPEN_TRADES = 5      # maximum simultaneous open positions
+SIGNAL_COOLDOWN = 360    # minutes between signals on the same symbol
 SCAN_INTERVAL   = 120    # seconds between main-loop cycles
 
 # ============================================================
@@ -55,10 +51,7 @@ import json
 import logging
 import os
 import random
- copilot/update-telegram-message-format
 import re
-
- main
 import sys
 import time
 import traceback
@@ -72,9 +65,6 @@ import numpy as np
 import pandas as pd
 import pandas_ta as ta
 import pytz
-
-# Division-by-zero guard used throughout numeric calculations
-EPSILON = 1e-10
 from sklearn.ensemble import (GradientBoostingClassifier,
                                RandomForestClassifier,
                                VotingClassifier)
@@ -83,6 +73,9 @@ from sklearn.preprocessing import StandardScaler
 from telegram import Bot
 from telegram.constants import ParseMode
 from telegram.error import TelegramError
+
+# Guard for division-by-zero
+EPSILON = 1e-10
 
 # ============================================================
 # LOGGING
@@ -101,9 +94,10 @@ def _setup_logging() -> logging.Logger:
         logging.getLogger(noisy).setLevel(logging.WARNING)
     return logging.getLogger('VIPBot')
 
+
 logger = _setup_logging()
 
-# Afghanistan timezone  UTC+4:30
+# UTC+4:30 — Afghanistan timezone
 AFG_TZ = pytz.timezone('Asia/Kabul')
 
 
@@ -111,7 +105,7 @@ AFG_TZ = pytz.timezone('Asia/Kabul')
 # DATABASE MANAGER
 # ============================================================
 class DatabaseManager:
-    """All aiosqlite persistence (async-safe, no database is locked errors)."""
+    """All aiosqlite persistence (async-safe)."""
 
     _SCHEMA = '''
         CREATE TABLE IF NOT EXISTS signals (
@@ -150,31 +144,31 @@ class DatabaseManager:
         );
 
         CREATE TABLE IF NOT EXISTS ai_data (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            symbol          TEXT,
-            rsi             REAL,
-            macd            REAL,
-            macd_hist       REAL,
-            obv             REAL,
-            atr             REAL,
-            bb_width        REAL,
-            bb_position     REAL,
-            ema_alignment   REAL,
-            volume_ratio    REAL,
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol            TEXT,
+            rsi               REAL,
+            macd              REAL,
+            macd_hist         REAL,
+            obv               REAL,
+            atr               REAL,
+            bb_width          REAL,
+            bb_position       REAL,
+            ema_alignment     REAL,
+            volume_ratio      REAL,
             order_block_score REAL,
-            fvg_score       REAL,
-            liquidity_score REAL,
-            mtf_trend_15m   REAL,
-            mtf_trend_4h    REAL,
-            mtf_trend_1d    REAL,
-            funding_rate    REAL,
-            target          INTEGER,
-            created_at      TEXT
+            fvg_score         REAL,
+            liquidity_score   REAL,
+            mtf_trend_15m     REAL,
+            mtf_trend_4h      REAL,
+            mtf_trend_1d      REAL,
+            funding_rate      REAL,
+            target            INTEGER,
+            created_at        TEXT
         );
 
         CREATE TABLE IF NOT EXISTS reports (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            report_type TEXT    NOT NULL,
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            report_type  TEXT    NOT NULL,
             period_start TEXT,
             period_end   TEXT,
             content      TEXT,
@@ -191,14 +185,13 @@ class DatabaseManager:
     def __init__(self, db_name: str = DB_NAME) -> None:
         self.db_name = db_name
 
-    # ── schema ──────────────────────────────────────────────
     async def init_db(self) -> None:
         async with aiosqlite.connect(self.db_name) as db:
             await db.executescript(self._SCHEMA)
             await db.commit()
             logger.info('Database initialised OK')
 
-    # ── signals ─────────────────────────────────────────────
+    # signals
     async def save_signal(self, sig: Dict) -> int:
         try:
             async with aiosqlite.connect(self.db_name) as db:
@@ -265,7 +258,7 @@ class DatabaseManager:
             logger.error('get_signals_by_period error: %s', exc)
             return []
 
-    # ── AI data ─────────────────────────────────────────────
+    # AI data
     async def save_ai_data(self, features: Dict, target: int) -> None:
         try:
             async with aiosqlite.connect(self.db_name) as db:
@@ -320,7 +313,7 @@ class DatabaseManager:
             logger.error('get_ai_training_data error: %s', exc)
             return None, None
 
-    # ── bot state ────────────────────────────────────────────
+    # bot state
     async def set_state(self, key: str, value: Any) -> None:
         try:
             async with aiosqlite.connect(self.db_name) as db:
@@ -350,7 +343,6 @@ class DatabaseManager:
 class TechnicalAnalysisEngine:
     """Computes 16+ technical indicators."""
 
-    # ── main ────────────────────────────────────────────────
     @staticmethod
     def compute_all(df: pd.DataFrame) -> Optional[pd.DataFrame]:
         if df is None or len(df) < 200:
@@ -391,7 +383,7 @@ class TechnicalAnalysisEngine:
                 e = ta.ema(df['close'], length=p)
                 df[f'ema{p}'] = e.fillna(df['close']) if e is not None else df['close']
 
-            # EMA alignment score  −4 … +4
+            # EMA alignment score  -4 ... +4
             ema_align = 0
             periods = [9, 21, 50, 100, 200]
             for i in range(len(periods) - 1):
@@ -410,11 +402,11 @@ class TechnicalAnalysisEngine:
             adx_df = ta.adx(df['high'], df['low'], df['close'], length=14)
             if adx_df is not None and not adx_df.empty:
                 ac = adx_df.columns.tolist()
-                df['adx'] = adx_df[ac[0]].fillna(25)
-                df['dmp'] = adx_df[ac[1]].fillna(25)
-                df['dmn'] = adx_df[ac[2]].fillna(25)
+                df['adx'] = adx_df[ac[0]].fillna(20)
+                df['dmp'] = adx_df[ac[1]].fillna(20)
+                df['dmn'] = adx_df[ac[2]].fillna(20)
             else:
-                df['adx'] = df['dmp'] = df['dmn'] = 25.0
+                df['adx'] = df['dmp'] = df['dmn'] = 20.0
 
             # Stochastic RSI
             srsi = ta.stochrsi(df['close'], length=14, rsi_length=14, k=3, d=3)
@@ -436,8 +428,8 @@ class TechnicalAnalysisEngine:
             df['volume_ratio'] = (df['volume'] / vol_sma).fillna(1)
 
             # VWAP (session approximation)
-            tp  = (df['high'] + df['low'] + df['close']) / 3
-            df['vwap'] = (tp * df['volume']).cumsum() / (df['volume'].cumsum() + EPSILON)
+            tp_col = (df['high'] + df['low'] + df['close']) / 3
+            df['vwap'] = (tp_col * df['volume']).cumsum() / (df['volume'].cumsum() + EPSILON)
 
             # Ichimoku Cloud
             try:
@@ -472,17 +464,13 @@ class TechnicalAnalysisEngine:
                 df['supertrend_dir'] = 1
                 df['supertrend']     = df['close']
 
-            # Final NaN cleanup
-            df = df.ffill()
-            df = df.bfill()
-            df = df.fillna(0)
+            df = df.ffill().bfill().fillna(0)
             return df
 
         except Exception as exc:
             logger.error('compute_all error: %s\n%s', exc, traceback.format_exc())
             return None
 
-    # ── Fibonacci ────────────────────────────────────────────
     @staticmethod
     def compute_fibonacci(df: pd.DataFrame, lookback: int = 100) -> Dict:
         try:
@@ -491,20 +479,19 @@ class TechnicalAnalysisEngine:
             lo = float(recent['low'].min())
             diff = hi - lo
             return {
-                'fib_0':   lo,
-                'fib_236': lo + 0.236 * diff,
-                'fib_382': lo + 0.382 * diff,
-                'fib_500': lo + 0.500 * diff,
-                'fib_618': lo + 0.618 * diff,
-                'fib_786': lo + 0.786 * diff,
-                'fib_1':   hi,
+                'fib_0':      lo,
+                'fib_236':    lo + 0.236 * diff,
+                'fib_382':    lo + 0.382 * diff,
+                'fib_500':    lo + 0.500 * diff,
+                'fib_618':    lo + 0.618 * diff,
+                'fib_786':    lo + 0.786 * diff,
+                'fib_1':      hi,
                 'swing_high': hi,
                 'swing_low':  lo,
             }
         except Exception:
             return {}
 
-    # ── Support / Resistance ─────────────────────────────────
     @staticmethod
     def compute_support_resistance(df: pd.DataFrame, lookback: int = 100) -> Dict:
         try:
@@ -537,7 +524,6 @@ class TechnicalAnalysisEngine:
 # ============================================================
 class SmartMoneyConcepts:
 
-    # ── Order Blocks ─────────────────────────────────────────
     @staticmethod
     def detect_order_blocks(df: pd.DataFrame, lookback: int = 50) -> Dict:
         result = {'bullish_ob': None, 'bearish_ob': None,
@@ -552,8 +538,8 @@ class SmartMoneyConcepts:
                 if prev['close'] < prev['open']:
                     move = (curr['close'] - prev['close']) / (prev['close'] + EPSILON)
                     if move > 0.003 and prev['low'] <= close <= prev['high'] * 1.02:
-                        result['bullish_ob']     = {'high': float(prev['high']), 'low': float(prev['low'])}
-                        result['bull_ob_score']  = min(1.0, move * 100)
+                        result['bullish_ob']    = {'high': float(prev['high']), 'low': float(prev['low'])}
+                        result['bull_ob_score'] = min(1.0, move * 100)
                 # Bearish OB: bullish candle just before strong down-move
                 if prev['close'] > prev['open']:
                     move = (prev['close'] - curr['close']) / (prev['close'] + EPSILON)
@@ -564,7 +550,6 @@ class SmartMoneyConcepts:
             logger.debug('detect_order_blocks: %s', exc)
         return result
 
-    # ── Fair Value Gaps ──────────────────────────────────────
     @staticmethod
     def detect_fair_value_gaps(df: pd.DataFrame, lookback: int = 50) -> Dict:
         result = {'bullish_fvg': [], 'bearish_fvg': [],
@@ -591,7 +576,6 @@ class SmartMoneyConcepts:
             logger.debug('detect_fair_value_gaps: %s', exc)
         return result
 
-    # ── Liquidity Zones ──────────────────────────────────────
     @staticmethod
     def detect_liquidity_zones(df: pd.DataFrame, lookback: int = 100) -> Dict:
         result = {'buy_side_liq': [], 'sell_side_liq': [],
@@ -621,7 +605,6 @@ class SmartMoneyConcepts:
             logger.debug('detect_liquidity_zones: %s', exc)
         return result
 
-    # ── Market Structure ─────────────────────────────────────
     @staticmethod
     def detect_market_structure(df: pd.DataFrame, lookback: int = 50) -> Dict:
         result = {'last_bos': None, 'last_choch': None,
@@ -640,8 +623,8 @@ class SmartMoneyConcepts:
                         and l < recent['low'].iloc[i+1] and l < recent['low'].iloc[i+2]):
                     sl.append((i, l))
             if sh and close > sh[-1][1]:
-                result['last_bos']       = 'bullish'
-                result['bos_score']      = 1
+                result['last_bos']        = 'bullish'
+                result['bos_score']       = 1
                 result['structure_trend'] = 'bullish'
             if sl and close < sl[-1][1]:
                 if result['last_bos'] == 'bullish':
@@ -649,14 +632,13 @@ class SmartMoneyConcepts:
                     result['choch_score']     = 1
                     result['structure_trend'] = 'reversal_bearish'
                 else:
-                    result['last_bos']       = 'bearish'
-                    result['bos_score']      = -1
+                    result['last_bos']        = 'bearish'
+                    result['bos_score']       = -1
                     result['structure_trend'] = 'bearish'
         except Exception as exc:
             logger.debug('detect_market_structure: %s', exc)
         return result
 
-    # ── RSI Divergence ───────────────────────────────────────
     @staticmethod
     def detect_rsi_divergence(df: pd.DataFrame, lookback: int = 50) -> Dict:
         result = {'regular_bullish': False, 'regular_bearish': False,
@@ -672,11 +654,10 @@ class SmartMoneyConcepts:
                 rsi = float(recent['rsi'].iloc[i])
                 if np.isnan(c) or np.isnan(rsi):
                     continue
-                ph = [recent['close'].iloc[i+j] for j in (-2,-1,1,2)]
-                pl = ph
+                ph = [recent['close'].iloc[i+j] for j in (-2, -1, 1, 2)]
                 if c > max(ph):
                     price_highs.append((i, c)); rsi_highs.append((i, rsi))
-                if c < min(pl):
+                if c < min(ph):
                     price_lows.append((i, c));  rsi_lows.append((i, rsi))
 
             if len(price_highs) >= 2 and len(rsi_highs) >= 2:
@@ -710,7 +691,7 @@ class MultiTimeframeAnalysis:
 
     @staticmethod
     def get_trend_score(df: pd.DataFrame) -> float:
-        """−1 (Strong Bear) … +1 (Strong Bull)."""
+        """Return trend score: -1.0 (strong bear) ... +1.0 (strong bull)."""
         if df is None or len(df) < 200:
             return 0.0
         try:
@@ -725,10 +706,10 @@ class MultiTimeframeAnalysis:
             v200 = float(e200.iloc[-1])
             if np.isnan(v50) or np.isnan(v200):
                 return 0.0
-            if close > v50 > v200:   return  1.0
-            if close > v200 > v50:   return  0.5
-            if close < v200 < v50:   return -0.5
-            if close < v50 < v200:   return -1.0
+            if close > v50 > v200:  return  1.0
+            if close > v200 > v50:  return  0.5
+            if close < v200 < v50:  return -0.5
+            if close < v50 < v200:  return -1.0
             return 0.0
         except Exception:
             return 0.0
@@ -767,9 +748,9 @@ class AIEngine:
             if X is None:
                 return False
             if len(set(y)) < 2:
-                logger.warning('AI training skipped: target array has only one unique class')
+                logger.warning('AI training skipped: only one target class')
                 return False
-            X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
+            X    = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
             X_sc = self.scaler.fit_transform(X)
             cv   = min(5, len(X) // 20)
             if cv >= 2:
@@ -790,7 +771,7 @@ class AIEngine:
         try:
             X = np.array([[features.get(f, 0.0) for f in self.FEATURE_ORDER]])
             X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
-            X_sc = self.scaler.transform(X)
+            X_sc    = self.scaler.transform(X)
             probas  = self.model.predict_proba(X_sc)[0]
             classes = self.model.classes_
             best    = int(np.argmax(probas))
@@ -813,16 +794,13 @@ class RiskManager:
     def calculate_position_size(balance: float, entry: float,
                                 sl: float, leverage: int = LEVERAGE) -> Dict:
         try:
-            # Risk 1% of account per trade – a widely accepted conservative
-            # risk-management rule (Kelly Criterion / fixed-fractional).
-            # Keeps drawdowns manageable across a long losing streak.
-            risk_usdt   = balance * 0.01
-            sl_pct      = abs(entry - sl) / entry
+            risk_usdt = balance * 0.01
+            sl_pct    = abs(entry - sl) / (entry + EPSILON)
             if sl_pct <= 0:
                 return {'position_size_usdt': 100, 'risk_amount': balance * 0.01}
-            pos         = risk_usdt / sl_pct
-            max_pos     = balance * leverage * 0.10
-            pos         = min(pos, max_pos)
+            pos     = risk_usdt / sl_pct
+            max_pos = balance * leverage * 0.10
+            pos     = min(pos, max_pos)
             return {
                 'position_size_usdt': round(pos, 2),
                 'quantity'          : round(pos / entry, 6),
@@ -836,11 +814,15 @@ class RiskManager:
 
     @staticmethod
     def calculate_tp_sl(entry: float, direction: str, atr: float) -> Dict:
+        """
+        Use a wide SL (2.5x ATR) to avoid premature stop-outs.
+        TPs maintain a favourable risk-to-reward ratio.
+        """
         try:
-            m_sl  = 1.5
+            m_sl  = 2.5   # wide SL
             m_tp1 = 2.0
-            m_tp2 = 4.0
-            m_tp3 = 7.0
+            m_tp2 = 4.5
+            m_tp3 = 8.0
             if direction == 'LONG':
                 sl  = entry - atr * m_sl
                 tp1 = entry + atr * m_tp1
@@ -854,18 +836,28 @@ class RiskManager:
             sl_dist = abs(sl - entry)
             return {
                 'sl': sl, 'tp1': tp1, 'tp2': tp2, 'tp3': tp3,
-                'rr1': round(abs(tp1 - entry) / sl_dist, 2) if sl_dist > 0 else 0,
-                'rr2': round(abs(tp2 - entry) / sl_dist, 2) if sl_dist > 0 else 0,
-                'rr3': round(abs(tp3 - entry) / sl_dist, 2) if sl_dist > 0 else 0,
+                'rr1': round(abs(tp1 - entry) / (sl_dist + EPSILON), 2),
+                'rr2': round(abs(tp2 - entry) / (sl_dist + EPSILON), 2),
+                'rr3': round(abs(tp3 - entry) / (sl_dist + EPSILON), 2),
             }
         except Exception:
             return {}
 
 
 # ============================================================
-# SIGNAL SCORING ENGINE
+# SIGNAL SCORING ENGINE  (Ultra-Strict Sniper Mode)
 # ============================================================
 class SignalScoringEngine:
+    """
+    Scores a directional signal across 16 categories.
+
+    Three hard gates must ALL pass before any scoring occurs:
+      1. ADX > 25 (confirmed trend strength)
+      2. All three MTF timeframes (15m, 4h, 1d) align with direction
+      3. At least one OB and one FVG present in the direction
+
+    Any gate failure returns confidence = 0 immediately.
+    """
 
     def __init__(self, ai: AIEngine) -> None:
         self.ai = ai
@@ -874,18 +866,13 @@ class SignalScoringEngine:
               smc: Dict, mtf: Dict,
               funding: float, ob_imbalance: float,
               features: Dict) -> Tuple[float, int, List[str]]:
-        """
-        Score a signal across 16 categories.
-        Returns (confidence 0-99, agreement_count, reasons list).
-        """
-        score      = 0.0
-        agreements = 0
-        reasons: List[str] = []
+        """Returns (confidence 0-99, agreement_count, reasons list)."""
 
         if df is None or len(df) < 5:
             return 0.0, 0, []
 
         is_long = direction == 'LONG'
+
         try:
             last = df.iloc[-1]
             prev = df.iloc[-2]
@@ -894,163 +881,192 @@ class SignalScoringEngine:
                 val = last.get(col, np.nan) if hasattr(last, 'get') else getattr(last, col, np.nan)
                 return float(val) if not (val is None or (isinstance(val, float) and np.isnan(val))) else np.nan
 
-            # ── 1  EMA Alignment  ±15 ──────────────────────────
+            # ========================================
+            # HARD GATES — all must pass
+            # ========================================
+
+            # Gate 1: ADX > 25 required
+            adx = _v('adx')
+            if np.isnan(adx) or adx <= 25:
+                return 0.0, 0, []
+
+            # Gate 2: All three MTF timeframes must align with direction
+            s15 = mtf.get('15m', 0.0)
+            s4h = mtf.get('4h',  0.0)
+            s1d = mtf.get('1d',  0.0)
+            if is_long:
+                if not (s15 > 0 and s4h > 0 and s1d > 0):
+                    return 0.0, 0, []
+            else:
+                if not (s15 < 0 and s4h < 0 and s1d < 0):
+                    return 0.0, 0, []
+
+            # Gate 3: OB + FVG confluence required
+            ob_data  = smc.get('order_blocks', {})
+            fvg_data = smc.get('fair_value_gaps', {})
+            if is_long:
+                if ob_data.get('bull_ob_score', 0) <= 0 or fvg_data.get('bull_fvg_score', 0) <= 0:
+                    return 0.0, 0, []
+            else:
+                if ob_data.get('bear_ob_score', 0) <= 0 or fvg_data.get('bear_fvg_score', 0) <= 0:
+                    return 0.0, 0, []
+
+            # ========================================
+            # SCORING
+            # ========================================
+            score      = 0.0
+            agreements = 0
+            reasons: List[str] = []
+
+            # 1  EMA Alignment  +/-15
             ea = _v('ema_alignment')
             if not np.isnan(ea):
                 if is_long:
-                    if ea >= 3:   score += 15; agreements += 1; reasons.append('✅ Strong bullish EMA stack')
-                    elif ea >= 1: score +=  8; reasons.append('✅ Moderate bullish EMA alignment')
-                    elif ea < 0:  score -= 15
+                    if ea >= 3:    score += 15; agreements += 1; reasons.append('EMA stack fully bullish')
+                    elif ea >= 1:  score +=  8; reasons.append('EMA alignment bullish')
+                    elif ea < 0:   score -= 15
                 else:
-                    if ea <= -3:   score += 15; agreements += 1; reasons.append('✅ Strong bearish EMA stack')
-                    elif ea <= -1: score +=  8; reasons.append('✅ Moderate bearish EMA alignment')
+                    if ea <= -3:   score += 15; agreements += 1; reasons.append('EMA stack fully bearish')
+                    elif ea <= -1: score +=  8; reasons.append('EMA alignment bearish')
                     elif ea > 0:   score -= 15
 
-            # ── 2  RSI  ±12 ────────────────────────────────────
+            # 2  RSI  +/-12
             rsi = _v('rsi')
             if not np.isnan(rsi):
                 if is_long:
-                    if rsi < 35:          score += 12; agreements += 1; reasons.append(f'✅ RSI oversold ({rsi:.1f})')
-                    elif rsi <= 60:       score +=  6; reasons.append(f'✅ RSI neutral-bullish ({rsi:.1f})')
-                    elif rsi > 70:        score -= 12; reasons.append(f'⚠️ RSI overbought for LONG ({rsi:.1f})')
+                    if rsi < 35:    score += 12; agreements += 1; reasons.append(f'RSI oversold ({rsi:.1f})')
+                    elif rsi <= 55: score +=  6; reasons.append(f'RSI neutral-bullish ({rsi:.1f})')
+                    elif rsi > 70:  score -= 12
                 else:
-                    if rsi > 65:          score += 12; agreements += 1; reasons.append(f'✅ RSI overbought ({rsi:.1f})')
-                    elif rsi >= 40:       score +=  6; reasons.append(f'✅ RSI neutral-bearish ({rsi:.1f})')
-                    elif rsi < 30:        score -= 12; reasons.append(f'⚠️ RSI oversold for SHORT ({rsi:.1f})')
+                    if rsi > 65:    score += 12; agreements += 1; reasons.append(f'RSI overbought ({rsi:.1f})')
+                    elif rsi >= 45: score +=  6; reasons.append(f'RSI neutral-bearish ({rsi:.1f})')
+                    elif rsi < 30:  score -= 12
 
-            # ── 3  MACD  ±10 ───────────────────────────────────
-            macd  = _v('macd');  ms = _v('macd_signal'); mh = _v('macd_hist')
-            pmacd = float(prev['macd']); pms = float(prev['macd_signal'])
-            if not any(np.isnan(x) for x in [macd, ms, mh, pmacd, pms]):
-                bull_cross = macd > ms and pmacd <= pms
-                bear_cross = macd < ms and pmacd >= pms
+            # 3  MACD  +/-10
+            macd_v   = _v('macd'); ms_v = _v('macd_signal'); mh_v = _v('macd_hist')
+            pmacd_v  = float(prev['macd']); pms_v = float(prev['macd_signal'])
+            if not any(np.isnan(x) for x in [macd_v, ms_v, mh_v, pmacd_v, pms_v]):
+                bull_cross = macd_v > ms_v and pmacd_v <= pms_v
+                bear_cross = macd_v < ms_v and pmacd_v >= pms_v
                 if is_long:
-                    if bull_cross:        score += 10; agreements += 1; reasons.append('✅ MACD bullish crossover')
-                    elif macd > ms and mh > 0: score += 5; reasons.append('✅ MACD bullish momentum')
-                    elif macd < ms:       score -= 10
+                    if bull_cross:                   score += 10; agreements += 1; reasons.append('MACD bullish crossover')
+                    elif macd_v > ms_v and mh_v > 0: score +=  6; reasons.append('MACD bullish momentum')
+                    elif macd_v < ms_v:              score -= 10
                 else:
-                    if bear_cross:        score += 10; agreements += 1; reasons.append('✅ MACD bearish crossover')
-                    elif macd < ms and mh < 0: score += 5; reasons.append('✅ MACD bearish momentum')
-                    elif macd > ms:       score -= 10
+                    if bear_cross:                   score += 10; agreements += 1; reasons.append('MACD bearish crossover')
+                    elif macd_v < ms_v and mh_v < 0: score +=  6; reasons.append('MACD bearish momentum')
+                    elif macd_v > ms_v:              score -= 10
 
-            # ── 4  Stochastic RSI  ±8 ──────────────────────────
+            # 4  Stochastic RSI  +/-8
             sk = _v('stochrsi_k'); sd = _v('stochrsi_d')
             if not any(np.isnan(x) for x in [sk, sd]):
                 if is_long:
-                    if sk < 20 and sk > sd: score += 8; agreements += 1; reasons.append(f'✅ StochRSI oversold bullish ({sk:.1f})')
+                    if sk < 20 and sk > sd: score += 8; agreements += 1; reasons.append(f'StochRSI oversold bullish ({sk:.1f})')
                     elif sk < 30:           score += 4
                 else:
-                    if sk > 80 and sk < sd: score += 8; agreements += 1; reasons.append(f'✅ StochRSI overbought bearish ({sk:.1f})')
+                    if sk > 80 and sk < sd: score += 8; agreements += 1; reasons.append(f'StochRSI overbought bearish ({sk:.1f})')
                     elif sk > 70:           score += 4
 
-            # ── 5  Bollinger Bands  ±8 ─────────────────────────
+            # 5  Bollinger Bands  +/-8
             bp = _v('bb_position'); bw = _v('bb_width')
             if not any(np.isnan(x) for x in [bp, bw]):
                 if is_long:
-                    if bp < 0.10:   score += 8; agreements += 1; reasons.append(f'✅ Price at lower BB ({bp:.2f})')
+                    if bp < 0.10:   score += 8; agreements += 1; reasons.append(f'Price at lower BB ({bp:.2f})')
                     elif bp < 0.30: score += 4
                 else:
-                    if bp > 0.90:   score += 8; agreements += 1; reasons.append(f'✅ Price at upper BB ({bp:.2f})')
+                    if bp > 0.90:   score += 8; agreements += 1; reasons.append(f'Price at upper BB ({bp:.2f})')
                     elif bp > 0.70: score += 4
                 if bw < 0.02:
-                    reasons.append('⚡ BB squeeze — breakout imminent')
+                    reasons.append('BB squeeze — breakout imminent')
 
-            # ── 6  ADX  ±8 ─────────────────────────────────────
-            adx = _v('adx'); dmp = _v('dmp'); dmn = _v('dmn')
+            # 6  ADX  +/-8  (gate already ensures >25)
+            dmp = _v('dmp'); dmn = _v('dmn')
             if not any(np.isnan(x) for x in [adx, dmp, dmn]):
-                if adx > 25:
-                    if is_long  and dmp > dmn: score += 8; agreements += 1; reasons.append(f'✅ Strong bull trend ADX={adx:.0f}')
-                    elif not is_long and dmn > dmp: score += 8; agreements += 1; reasons.append(f'✅ Strong bear trend ADX={adx:.0f}')
-                    elif is_long  and dmn > dmp: score -= 8
-                    elif not is_long and dmp > dmn: score -= 8
-                else:
-                    reasons.append(f'⚠️ Weak trend ADX={adx:.0f}')
+                if is_long  and dmp > dmn: score += 8; agreements += 1; reasons.append(f'Strong bull trend ADX={adx:.0f}')
+                elif not is_long and dmn > dmp: score += 8; agreements += 1; reasons.append(f'Strong bear trend ADX={adx:.0f}')
+                elif is_long  and dmn > dmp: score -= 8
+                elif not is_long and dmp > dmn: score -= 8
 
-            # ── 7  Volume  ±10 ─────────────────────────────────
+            # 7  Volume  +/-10
             vr = _v('volume_ratio')
             if not np.isnan(vr):
-                if vr > 2.0:   score += 10; agreements += 1; reasons.append(f'✅ High volume {vr:.1f}x avg')
-                elif vr > 1.3: score +=  5; reasons.append(f'✅ Above-avg volume {vr:.1f}x')
-                elif vr < 0.7: score -=  5; reasons.append(f'⚠️ Low volume {vr:.1f}x avg')
+                if vr > 2.0:   score += 10; agreements += 1; reasons.append(f'High volume {vr:.1f}x avg')
+                elif vr > 1.3: score +=  5; reasons.append(f'Above-avg volume {vr:.1f}x')
+                elif vr < 0.7: score -=  5
 
-            # ── 8  Multi-Timeframe  ±15 ────────────────────────
-            s15 = mtf.get('15m', 0.0); s4h = mtf.get('4h', 0.0); s1d = mtf.get('1d', 0.0)
+            # 8  Multi-Timeframe  (gate ensures all aligned)
             mtf_sum = s15 + s4h * 1.5 + s1d * 2.0
             if is_long:
-                if mtf_sum > 2.5:   score += 15; agreements += 1; reasons.append('✅ Strong MTF bullish confirmation')
-                elif mtf_sum > 0.5: score +=  8; reasons.append('✅ Moderate MTF bullish')
-                elif mtf_sum < -1.5: score -= 15
+                if mtf_sum > 3.5:    score += 15; agreements += 1; reasons.append('Strong MTF bullish alignment (all TFs)')
+                elif mtf_sum > 2.0:  score += 10; reasons.append('MTF bullish alignment confirmed')
             else:
-                if mtf_sum < -2.5:   score += 15; agreements += 1; reasons.append('✅ Strong MTF bearish confirmation')
-                elif mtf_sum < -0.5: score +=  8; reasons.append('✅ Moderate MTF bearish')
-                elif mtf_sum > 1.5:  score -= 15
+                if mtf_sum < -3.5:   score += 15; agreements += 1; reasons.append('Strong MTF bearish alignment (all TFs)')
+                elif mtf_sum < -2.0: score += 10; reasons.append('MTF bearish alignment confirmed')
 
-            # ── 9  Market Structure  ±12 ───────────────────────
+            # 9  Market Structure  +/-12
             ms_data = smc.get('market_structure', {})
             bos_s   = ms_data.get('bos_score', 0)
             if is_long:
-                if bos_s > 0:  score += 12; agreements += 1; reasons.append('✅ Bullish BOS confirmed')
+                if bos_s > 0:   score += 12; agreements += 1; reasons.append('Bullish BOS confirmed')
                 elif bos_s < 0: score -= 12
             else:
-                if bos_s < 0:  score += 12; agreements += 1; reasons.append('✅ Bearish BOS confirmed')
+                if bos_s < 0:   score += 12; agreements += 1; reasons.append('Bearish BOS confirmed')
                 elif bos_s > 0: score -= 12
-            if ms_data.get('last_choch') == 'bearish' and not is_long:
-                score += 8; reasons.append('✅ CHoCH bearish reversal')
             if ms_data.get('last_choch') == 'bullish' and is_long:
-                score += 8; reasons.append('✅ CHoCH bullish reversal')
+                score += 8; reasons.append('CHoCH bullish reversal')
+            if ms_data.get('last_choch') == 'bearish' and not is_long:
+                score += 8; reasons.append('CHoCH bearish reversal')
 
-            # ── 10  Order Blocks  ±12 ──────────────────────────
-            ob = smc.get('order_blocks', {})
-            if is_long  and ob.get('bull_ob_score', 0) > 0:
-                score += 12; agreements += 1; reasons.append('✅ Bullish Order Block nearby')
-            if not is_long and ob.get('bear_ob_score', 0) > 0:
-                score += 12; agreements += 1; reasons.append('✅ Bearish Order Block nearby')
+            # 10  Order Blocks  (gate ensures present)
+            if is_long  and ob_data.get('bull_ob_score', 0) > 0:
+                score += 12; agreements += 1; reasons.append('Bullish Order Block confluence')
+            if not is_long and ob_data.get('bear_ob_score', 0) > 0:
+                score += 12; agreements += 1; reasons.append('Bearish Order Block confluence')
 
-            # ── 11  Fair Value Gaps  ±10 ───────────────────────
-            fvg = smc.get('fair_value_gaps', {})
-            if is_long  and fvg.get('bull_fvg_score', 0) > 0:
-                score += 10; agreements += 1; reasons.append('✅ Bullish FVG present')
-            if not is_long and fvg.get('bear_fvg_score', 0) > 0:
-                score += 10; agreements += 1; reasons.append('✅ Bearish FVG present')
+            # 11  Fair Value Gaps  (gate ensures present)
+            if is_long  and fvg_data.get('bull_fvg_score', 0) > 0:
+                score += 10; agreements += 1; reasons.append('Bullish FVG confluence')
+            if not is_long and fvg_data.get('bear_fvg_score', 0) > 0:
+                score += 10; agreements += 1; reasons.append('Bearish FVG confluence')
 
-            # ── 12  RSI Divergence  ±15 ────────────────────────
+            # 12  RSI Divergence  +/-15
             div = smc.get('divergence', {})
             if is_long:
-                if div.get('regular_bullish'): score += 15; agreements += 1; reasons.append('✅ Regular Bullish RSI Divergence')
-                elif div.get('hidden_bullish'): score += 8; reasons.append('✅ Hidden Bullish RSI Divergence')
-                if div.get('regular_bearish'): score -= 15
+                if div.get('regular_bullish'):  score += 15; agreements += 1; reasons.append('Regular Bullish RSI Divergence')
+                elif div.get('hidden_bullish'): score +=  8; reasons.append('Hidden Bullish RSI Divergence')
+                if div.get('regular_bearish'):  score -= 15
             else:
-                if div.get('regular_bearish'): score += 15; agreements += 1; reasons.append('✅ Regular Bearish RSI Divergence')
-                elif div.get('hidden_bearish'): score += 8; reasons.append('✅ Hidden Bearish RSI Divergence')
-                if div.get('regular_bullish'): score -= 15
+                if div.get('regular_bearish'):  score += 15; agreements += 1; reasons.append('Regular Bearish RSI Divergence')
+                elif div.get('hidden_bearish'): score +=  8; reasons.append('Hidden Bearish RSI Divergence')
+                if div.get('regular_bullish'):  score -= 15
 
-            # ── 13  Funding Rate  ±8 ───────────────────────────
+            # 13  Funding Rate  +/-8
             fr = funding if funding is not None and not np.isnan(funding) else 0.0
-            if is_long  and fr < -0.001: score += 8; agreements += 1; reasons.append(f'✅ Negative funding {fr*100:.4f}%')
-            elif not is_long and fr > 0.001: score += 8; agreements += 1; reasons.append(f'✅ Positive funding {fr*100:.4f}%')
+            if is_long  and fr < -0.001: score += 8; agreements += 1; reasons.append(f'Negative funding rate {fr*100:.4f}%')
+            elif not is_long and fr > 0.001: score += 8; agreements += 1; reasons.append(f'Positive funding rate {fr*100:.4f}%')
             elif is_long  and fr > 0.003: score -= 8
             elif not is_long and fr < -0.003: score -= 8
 
-            # ── 14  Orderbook Imbalance  ±6 ────────────────────
+            # 14  Orderbook Imbalance  +/-6
             if ob_imbalance is not None and not np.isnan(ob_imbalance):
-                if is_long  and ob_imbalance > 0.60: score += 6; reasons.append(f'✅ Bid imbalance {ob_imbalance:.0%}')
-                elif not is_long and ob_imbalance < 0.40: score += 6; reasons.append(f'✅ Ask imbalance {1-ob_imbalance:.0%}')
+                if is_long  and ob_imbalance > 0.60: score += 6; reasons.append(f'Bid imbalance {ob_imbalance:.0%}')
+                elif not is_long and ob_imbalance < 0.40: score += 6; reasons.append(f'Ask imbalance {1-ob_imbalance:.0%}')
 
-            # ── 15  Supertrend  ±5 ─────────────────────────────
+            # 15  Supertrend  +/-5
             std = _v('supertrend_dir')
             if not np.isnan(std):
-                if is_long  and std == 1:  score += 5; reasons.append('✅ Supertrend bullish')
-                elif not is_long and std == -1: score += 5; reasons.append('✅ Supertrend bearish')
+                if is_long  and std == 1:    score += 5; reasons.append('Supertrend bullish')
+                elif not is_long and std == -1: score += 5; reasons.append('Supertrend bearish')
                 elif is_long  and std == -1: score -= 5
                 elif not is_long and std == 1:  score -= 5
 
-            # ── 16  AI Prediction bonus ────────────────────────
+            # 16  AI Prediction bonus
             ai_pred, ai_conf = self.ai.predict(features)
             ai_dir = 1 if is_long else -1
             if ai_pred == ai_dir and ai_conf > 0.60:
                 bonus = (ai_conf - 0.50) * 20
                 score += bonus
-                reasons.append(f'✅ AI confirms signal ({ai_conf:.0%})')
+                reasons.append(f'AI confirms signal ({ai_conf:.0%})')
             elif ai_pred == -ai_dir and ai_conf > 0.65:
                 score -= (ai_conf - 0.50) * 15
 
@@ -1063,22 +1079,27 @@ class SignalScoringEngine:
 
 
 # ============================================================
-# TELEGRAM FORMATTER
+# TELEGRAM FORMATTER  (Quant Analyst style)
 # ============================================================
 class TelegramFormatter:
 
     @staticmethod
-    def _bar(pct: float) -> str:
-        filled = max(0, min(10, int(pct / 10)))
-        return f"[{'█'*filled}{'░'*(10-filled)}] {pct:.0f}%"
+    def _clean_symbol(raw: str) -> str:
+        """Convert exchange symbol to hashtag form.
+
+        Examples:
+            'DRIFT/USDT:USDT' -> '#DRIFTUSDT'
+            'BTC/USDT'        -> '#BTCUSDT'
+        """
+        return '#' + raw.split(':')[0].replace('/', '')
 
     @staticmethod
     def _session() -> str:
         h = datetime.utcnow().hour
-        if  8 <= h < 16: return '🇬🇧 London'
-        if 13 <= h < 21: return '🇺🇸 New York'
-        if  0 <= h <  8: return '🇯🇵 Tokyo'
-        return '🌐 Off-Hours'
+        if  8 <= h < 16: return 'London'
+        if 13 <= h < 21: return 'New York'
+        if  0 <= h <  8: return 'Tokyo'
+        return 'Off-Hours'
 
     @staticmethod
     def _regime(df: pd.DataFrame) -> str:
@@ -1087,28 +1108,13 @@ class TelegramFormatter:
             close = float(df['close'].iloc[-1])
             e50   = float(df['ema50'].iloc[-1])
             bw    = float(df['bb_width'].iloc[-1])
-            if adx > 30 and close > e50: return '📈 Trending Up'
-            if adx > 30 and close < e50: return '📉 Trending Down'
-            if bw  > 0.04:               return '⚡ Volatile'
-            return '↔️ Ranging'
+            if adx > 30 and close > e50: return 'Trending Up'
+            if adx > 30 and close < e50: return 'Trending Down'
+            if bw  > 0.04:               return 'Volatile'
+            return 'Ranging'
         except Exception:
-            return '❓ Unknown'
+            return 'Unknown'
 
- copilot/update-telegram-message-format
-    @staticmethod
-    def _parse_symbol(raw: str) -> str:
-        """Convert exchange symbol to hashtag form.
-
-        Examples::
-            'DRIFT/USDT:USDT' → '#DRIFTUSDT'
-            'BTC/USDT'        → '#BTCUSDT'
-        """
-        # Drop the settlement suffix (everything from ':' onward), if present
-        base = raw.split(':')[0]
-        # Remove the '/' separator
-        return '#' + base.replace('/', '')
-
-    # ── Signal ──────────────────────────────────────────────
     @staticmethod
     def signal(sig: Dict, sig_id: int) -> str:
         d       = sig['direction']
@@ -1118,228 +1124,105 @@ class TelegramFormatter:
         conf    = sig['confidence']
         entry   = sig['entry']
         sl      = sig['sl']
-        tp1     = sig['tp1']; tp2 = sig['tp2']; tp3 = sig['tp3']
-        symbol  = TelegramFormatter._parse_symbol(sig['symbol'])
-        reas    = sig.get('reasons', [])
-        if isinstance(reas, str):
-            reas = json.loads(reas)
-        # Build a concise catalyst line from the top reasons
-        # Strip leading emoji/punctuation characters using a regex so only
-        # the descriptive text is shown (handles ✅, ⚠️, etc.)
-        catalyst = '; '.join(
-            re.sub(r'^[^\w(]+', '', r) for r in reas[:3]
-        ) if reas else 'Strong MTF Confirmation & Market Structure Break.'
-        lev = sig.get('leverage', LEVERAGE)
-        return (
-            f'{setup}: <b>{symbol}</b>\n'
-            f'━━━━━━━━━━━━━━━━━━━━\n'
-            f'🔻 Entry Zone : <code>{entry:.4f}</code>\n'
-            f'⛔️ Stop Loss  : <code>{sl:.4f}</code>\n'
-            f'\n'
-            f'🎯 Take Profit Targets:\n'
-            f'• TP1: <code>{tp1:.4f}</code> (Safe)\n'
-            f'• TP2: <code>{tp2:.4f}</code> (Mid)\n'
-            f'• TP3: <code>{tp3:.4f}</code> (Max)\n'
-            f'\n'
-            f'📐 Trade Info:\n'
-            f'Leverage: {lev}x\n'
-            f'Win Prob: {conf:.0f}%\n'
-            f'Market:   {market}\n'
-            f'\n'
-            f'💡 Signal Catalyst:\n'
-            f'{catalyst}\n'
-            f'\n'
+        tp1     = sig['tp1']
+        tp2     = sig['tp2']
+        tp3     = sig['tp3']
+        symbol  = TelegramFormatter._clean_symbol(sig['symbol'])
+        lev     = sig.get('leverage', LEVERAGE)
 
-    # ── Signal ──────────────────────────────────────────────
-    @staticmethod
-    def signal(sig: Dict, sig_id: int) -> str:
-        d = sig['direction']
-        emoji = '🟢 LONG' if d == 'LONG' else '🔴 SHORT'
-        conf = sig['confidence']
-        entry = sig['entry']
-        sl = sig['sl']
-        tp1 = sig['tp1']; tp2 = sig['tp2']; tp3 = sig['tp3']
-        pos = sig.get('position_size', 0)
-        regime = sig.get('market_regime', '📉 Downward')
         reas = sig.get('reasons', [])
         if isinstance(reas, str):
-            reas = json.loads(reas)
-        reas_txt = ' & '.join(reas[:2]).replace('✅', '').replace('⚠️', '').strip()
-
-        # Clean symbol: BTC/USDT:USDT -> #BTCUSDT
-        raw_sym = sig['symbol']
-        clean_sym = f"#{raw_sym.split(':')[0].replace('/', '')}"
-
-        direction_text = "LONG SETUP" if d == 'LONG' else "SHORT SETUP"
-        emoji_trend = "📈" if d == 'LONG' else "📉"
+            try:
+                reas = json.loads(reas)
+            except Exception:
+                reas = []
+        catalyst = '; '.join(reas[:3]) if reas else 'Strong MTF Confirmation & OB/FVG Confluence.'
 
         return (
-            f'{emoji_trend} <b>{direction_text}: {clean_sym}</b>\n'
-            f'━━━━━━━━━━━━━━━━━━━━\n'
-            f'🔻 <b>Entry Zone :</b> <code>{entry:.4f}</code>\n'
-            f'⛔️ <b>Stop Loss  :</b> <code>{sl:.4f}</code>\n\n'
-            f'🎯 <b>Take Profit Targets:</b>\n'
-            f'• TP1: <code>{tp1:.4f}</code> (Safe)\n'
-            f'• TP2: <code>{tp2:.4f}</code> (Mid)\n'
-            f'• TP3: <code>{tp3:.4f}</code> (Max)\n\n'
-            f'📐 <b>Trade Info:</b>\n'
-            f'Leverage: 20x\n'
-            f'Win Prob: {conf:.0f}%\n'
-            f'Market:   {regime}\n\n'
-            f'💡 <b>Signal Catalyst:</b>\n'
-            f'{reas_txt}.\n\n'
- main
+            f'{setup}: <b>{symbol}</b>\n'
+            f'<b>━━━━━━━━━━━━━━━━━━━━</b>\n'
+            f'🔻 Entry Zone : <code>{entry:.4f}</code>\n'
+            f'⛔️ Stop Loss  : <code>{sl:.4f}</code>\n\n'
+            f'🎯 Take Profit Targets:\n'
+            f'  • TP1 (Safe): <code>{tp1:.4f}</code>\n'
+            f'  • TP2 (Mid):  <code>{tp2:.4f}</code>\n'
+            f'  • TP3 (Max):  <code>{tp3:.4f}</code>\n\n'
+            f'📐 Trade Info:\n'
+            f'  Leverage: {lev}x\n'
+            f'  Win Prob: {conf:.0f}%\n'
+            f'  Market:   {market}\n\n'
+            f'💡 Signal Catalyst:\n'
+            f'  {catalyst}\n\n'
             f'@NovaCryptoSignal'
         )
 
     @staticmethod
     def tp_hit(sig: Dict, tp_num: int, price: float, pnl: float) -> str:
- copilot/update-telegram-message-format
-
- copilot/fix-telegram-message-format
- main
-        e = {1: '🥇', 2: '🥈', 3: '🏆'}.get(tp_num, '🎯')
+        e      = {1: '🥇', 2: '🥈', 3: '🏆'}.get(tp_num, '🎯')
+        symbol = TelegramFormatter._clean_symbol(sig['symbol'])
         return (
-            f'{e} <b>TP{tp_num} HIT!</b> {e}\n'
-            f'━━━━━━━━━━━━━━━━\n'
-            f'🎯 <b>{sig["symbol"]}</b>  {sig["direction"]}\n'
-            f'💰 Price: <code>${price:.4f}</code>\n'
-            f'📊 Profit: <code>+{pnl:.2f}%</code>\n'
-            f'🎉 Signal #{sig["id"]:04d} — Congratulations!'
- copilot/update-telegram-message-format
-
-
-        raw_sym = sig['symbol']
-        clean_sym = f"#{raw_sym.split(':')[0].replace('/', '')}"
-        return (
-            f'✅ TAKE PROFIT HIT: {clean_sym}\n'
-            f'━━━━━━━━━━━━━━━━━━━━\n'
-            f'Target: TP{tp_num} 🎯\n'
-            f'Price: {price:.4f}\n'
-            f'Profit: +{pnl:.1f}%\n'
-            f'\n'
+            f'{e} <b>TP{tp_num} HIT!</b>\n'
+            f'<b>━━━━━━━━━━━━━━━━━━━━</b>\n'
+            f'📌 {symbol}  {sig["direction"]}\n'
+            f'💰 Price:  <code>{price:.4f}</code>\n'
+            f'📊 Profit: <code>+{pnl:.2f}%</code>\n\n'
             f'@NovaCryptoSignal'
- main
- main
         )
 
     @staticmethod
     def sl_hit(sig: Dict, price: float, pnl: float) -> str:
- copilot/update-telegram-message-format
-
- copilot/fix-telegram-message-format
- main
+        symbol = TelegramFormatter._clean_symbol(sig['symbol'])
         return (
-            f'🛑 <b>STOP LOSS HIT</b>\n'
-            f'━━━━━━━━━━━━━━━━\n'
-            f'📊 <b>{sig["symbol"]}</b>  {sig["direction"]}\n'
-            f'💔 Price: <code>${price:.4f}</code>\n'
-            f'📉 Loss: <code>{pnl:.2f}%</code>\n'
-            f'🔄 Signal #{sig["id"]:04d} closed\n'
-            f'<i>Cut losses, preserve capital 💪</i>'
- copilot/update-telegram-message-format
-
-
-        raw_sym = sig['symbol']
-        clean_sym = f"#{raw_sym.split(':')[0].replace('/', '')}"
-        return (
-            f'🛡 STOP LOSS HIT: {clean_sym}\n'
-            f'━━━━━━━━━━━━━━━━━━━━\n'
-            f'Price: {price:.4f}\n'
-            f'Loss: -{abs(pnl):.1f}%\n'
-            f'Risk managed successfully.\n'
-            f'\n'
+            f'🛡 <b>STOP LOSS HIT</b>\n'
+            f'<b>━━━━━━━━━━━━━━━━━━━━</b>\n'
+            f'📌 {symbol}  {sig["direction"]}\n'
+            f'💔 Price: <code>{price:.4f}</code>\n'
+            f'📉 Loss:  <code>{pnl:.2f}%</code>\n'
+            f'Risk managed successfully.\n\n'
             f'@NovaCryptoSignal'
- main
- main
         )
 
-    @staticmethod
-    def breakeven(sig: Dict) -> str:
- copilot/update-telegram-message-format
-
- copilot/fix-telegram-message-format
- main
-        return (
-            f'🔐 <b>BREAKEVEN ACTIVATED</b>\n'
-            f'━━━━━━━━━━━━━━━━\n'
-            f'🎯 <b>{sig["symbol"]}</b>  {sig["direction"]}\n'
- copilot/update-telegram-message-format
-
-
-        raw_sym = sig['symbol']
-        clean_sym = f"#{raw_sym.split(':')[0].replace('/', '')}"
-        return (
-            f'🔐 <b>BREAKEVEN ACTIVATED</b>\n'
-            f'━━━━━━━━━━━━━━━━\n'
-            f'🎯 <b>{clean_sym}</b>  {sig["direction"]}\n'
- main
- main
-            f'✅ SL moved to entry: <code>${sig["entry"]:.4f}</code>\n'
-            f'🛡 <b>Risk-free trade!</b>  Signal #{sig["id"]:04d}'
-        )
-
-    @staticmethod
-    def trailing_update(sig: Dict, new_sl: float) -> str:
- copilot/update-telegram-message-format
-
- copilot/fix-telegram-message-format
- main
-        return (
-            f'📡 <b>TRAILING STOP UPDATE</b>\n'
-            f'━━━━━━━━━━━━━━━━\n'
-            f'🎯 <b>{sig["symbol"]}</b>  {sig["direction"]}\n'
- copilot/update-telegram-message-format
-
-
-        raw_sym = sig['symbol']
-        clean_sym = f"#{raw_sym.split(':')[0].replace('/', '')}"
-        return (
-            f'📡 <b>TRAILING STOP UPDATE</b>\n'
-            f'━━━━━━━━━━━━━━━━\n'
-            f'🎯 <b>{clean_sym}</b>  {sig["direction"]}\n'
- main
- main
-            f'🔄 New SL: <code>${new_sl:.4f}</code>\n'
-            f'🛡 Protecting profits  Signal #{sig["id"]:04d}'
-        )
-
-    # ── Reports ─────────────────────────────────────────────
     @staticmethod
     def daily_report(signals: List[Dict], date: datetime) -> str:
+        date_str = date.strftime('%Y-%m-%d')
         if not signals:
             return (
-                f'📊 <b>DAILY REPORT</b>  |  {date.strftime("%Y-%m-%d")}\n'
-                f'━━━━━━━━━━━━━━━━━━━━━━━\n'
-                f'😴 No completed signals today\n'
-                f'<i>VIP Crypto Signal Bot v2.0</i>'
+                f'📊 <b>DAILY PERFORMANCE REPORT</b>\n'
+                f'📅 {date_str}\n'
+                f'<b>━━━━━━━━━━━━━━━━━━━━━━━</b>\n'
+                f'😴 No completed signals today.\n'
+                f'<i>VIP Crypto Signal Bot v3.0</i>'
             )
-        wins     = [s for s in signals if s.get('pnl_percent', 0) > 0]
-        tot_pct  = sum(s.get('pnl_percent', 0) for s in signals)
-        tot_usd  = sum(s.get('pnl_usdt',   0) for s in signals)
-        wr       = len(wins) / len(signals) * 100
-        best     = max(signals, key=lambda x: x.get('pnl_percent', 0))
-        worst    = min(signals, key=lambda x: x.get('pnl_percent', 0))
-        rows     = ''.join(
-            f"  {'✅' if s.get('pnl_percent',0)>0 else '❌'} "
-            f"{s['symbol']} {s['direction']}: {s.get('pnl_percent',0):+.2f}%\n"
+        wins    = [s for s in signals if s.get('pnl_percent', 0) > 0]
+        tot_pct = sum(s.get('pnl_percent', 0) for s in signals)
+        tot_usd = sum(s.get('pnl_usdt',   0) for s in signals)
+        wr      = len(wins) / len(signals) * 100
+        best    = max(signals, key=lambda x: x.get('pnl_percent', 0))
+        worst   = min(signals, key=lambda x: x.get('pnl_percent', 0))
+        rows    = ''.join(
+            f"  {'✅' if s.get('pnl_percent', 0) > 0 else '❌'} "
+            f"{TelegramFormatter._clean_symbol(s['symbol'])} {s['direction']}: "
+            f"{s.get('pnl_percent', 0):+.2f}%\n"
             for s in signals
         )
         return (
-            f'📊 <b>DAILY REPORT</b>  |  {date.strftime("%Y-%m-%d")}\n'
-            f'━━━━━━━━━━━━━━━━━━━━━━━\n'
-            f'📈 Signals: <b>{len(signals)}</b>\n'
+            f'📊 <b>DAILY PERFORMANCE REPORT</b>\n'
+            f'📅 {date_str}\n'
+            f'<b>━━━━━━━━━━━━━━━━━━━━━━━</b>\n'
+            f'📈 Total Trades: <b>{len(signals)}</b>\n'
             f'✅ Wins: <b>{len(wins)}</b>  ❌ Losses: <b>{len(signals)-len(wins)}</b>\n'
             f'🎯 Win Rate: <b>{wr:.1f}%</b>\n'
-            f'━━━━━━━━━━━━━━━━━━━━━━━\n'
-            f'💰 PnL: <code>{tot_pct:+.2f}%</code>  (<code>{tot_usd:+.2f} USDT</code>)\n'
-            f'━━━━━━━━━━━━━━━━━━━━━━━\n'
+            f'<b>━━━━━━━━━━━━━━━━━━━━━━━</b>\n'
+            f'💰 Total PnL: <code>{tot_pct:+.2f}%</code>  (<code>{tot_usd:+.2f} USDT</code>)\n'
+            f'<b>━━━━━━━━━━━━━━━━━━━━━━━</b>\n'
             f'📋 <b>Trades:</b>\n{rows}'
-            f'━━━━━━━━━━━━━━━━━━━━━━━\n'
-            f'🏆 Best:  {best["symbol"]} {best["direction"]} <code>{best.get("pnl_percent",0):+.2f}%</code>\n'
-            f'💔 Worst: {worst["symbol"]} {worst["direction"]} <code>{worst.get("pnl_percent",0):+.2f}%</code>\n'
-            f'━━━━━━━━━━━━━━━━━━━━━━━\n'
-            f'🤖 <i>VIP Crypto Signal Bot v2.0</i>'
+            f'<b>━━━━━━━━━━━━━━━━━━━━━━━</b>\n'
+            f'🏆 Best:  {TelegramFormatter._clean_symbol(best["symbol"])} '
+            f'<code>{best.get("pnl_percent", 0):+.2f}%</code>\n'
+            f'💔 Worst: {TelegramFormatter._clean_symbol(worst["symbol"])} '
+            f'<code>{worst.get("pnl_percent", 0):+.2f}%</code>\n'
+            f'<b>━━━━━━━━━━━━━━━━━━━━━━━</b>\n'
+            f'🤖 <i>VIP Crypto Signal Bot v3.0</i>'
         )
 
     @staticmethod
@@ -1347,10 +1230,10 @@ class TelegramFormatter:
                       daily: Dict) -> str:
         if not signals:
             return (
-                '📊 <b>WEEKLY REPORT</b>\n'
-                '━━━━━━━━━━━━━━━━━━━━━━━\n'
-                '😴 No signals this week\n'
-                '<i>VIP Crypto Signal Bot v2.0</i>'
+                f'🏆 <b>WEEKLY PERFORMANCE REPORT</b>\n'
+                f'<b>━━━━━━━━━━━━━━━━━━━━━━━</b>\n'
+                f'😴 No signals this week.\n'
+                f'<i>VIP Crypto Signal Bot v3.0</i>'
             )
         wins    = [s for s in signals if s.get('pnl_percent', 0) > 0]
         wr      = len(wins) / len(signals) * 100
@@ -1359,65 +1242,31 @@ class TelegramFormatter:
         sym_pnl: Dict[str, float] = defaultdict(float)
         for s in signals:
             sym_pnl[s['symbol']] += s.get('pnl_percent', 0)
-        top3 = sorted(sym_pnl.items(), key=lambda x: x[1], reverse=True)[:3]
-        top_txt = '\n'.join(f'  {i+1}. {sym}: {pnl:+.2f}%' for i,(sym,pnl) in enumerate(top3))
+        top3    = sorted(sym_pnl.items(), key=lambda x: x[1], reverse=True)[:3]
+        top_txt = '\n'.join(
+            f'  {i+1}. {TelegramFormatter._clean_symbol(sym)}: {pnl:+.2f}%'
+            for i, (sym, pnl) in enumerate(top3)
+        )
         day_txt = ''.join(
-            f"  {'📈' if sum(s.get('pnl_percent',0) for s in ds)>=0 else '📉'} "
-            f"{day}: {sum(s.get('pnl_percent',0) for s in ds):+.2f}% "
+            f"  {'📈' if sum(s.get('pnl_percent', 0) for s in ds) >= 0 else '📉'} "
+            f"{day}: {sum(s.get('pnl_percent', 0) for s in ds):+.2f}% "
             f"({len(ds)} trades)\n"
             for day, ds in daily.items()
         )
         return (
-            f'📊 <b>WEEKLY REPORT</b>  |  {ws.strftime("%m/%d")}–{we.strftime("%m/%d/%Y")}\n'
-            f'━━━━━━━━━━━━━━━━━━━━━━━\n'
-            f'📈 Trades: <b>{len(signals)}</b>  ✅ {len(wins)}  ❌ {len(signals)-len(wins)}\n'
+            f'🏆 <b>WEEKLY PERFORMANCE REPORT</b>\n'
+            f'📅 {ws.strftime("%m/%d")}–{we.strftime("%m/%d/%Y")}\n'
+            f'<b>━━━━━━━━━━━━━━━━━━━━━━━</b>\n'
+            f'📈 Total Trades: <b>{len(signals)}</b>  ✅ {len(wins)}  ❌ {len(signals)-len(wins)}\n'
             f'🎯 Win Rate: <b>{wr:.1f}%</b>\n'
-            f'━━━━━━━━━━━━━━━━━━━━━━━\n'
-            f'💰 PnL: <code>{tot_pct:+.2f}%</code>  (<code>{tot_usd:+.2f} USDT</code>)\n'
-            f'━━━━━━━━━━━━━━━━━━━━━━━\n'
+            f'<b>━━━━━━━━━━━━━━━━━━━━━━━</b>\n'
+            f'💰 Total PnL: <code>{tot_pct:+.2f}%</code>  (<code>{tot_usd:+.2f} USDT</code>)\n'
+            f'<b>━━━━━━━━━━━━━━━━━━━━━━━</b>\n'
             f'📅 <b>Day-by-Day:</b>\n{day_txt}'
-            f'━━━━━━━━━━━━━━━━━━━━━━━\n'
+            f'<b>━━━━━━━━━━━━━━━━━━━━━━━</b>\n'
             f'🏆 <b>Top Symbols:</b>\n{top_txt}\n'
-            f'━━━━━━━━━━━━━━━━━━━━━━━\n'
-            f'🤖 <i>VIP Crypto Signal Bot v2.0</i>'
-        )
-
-    @staticmethod
-    def monthly_report(signals: List[Dict], month: datetime, weekly: Dict) -> str:
-        if not signals:
-            return (
-                f'📊 <b>MONTHLY REPORT</b>  |  {month.strftime("%B %Y")}\n'
-                '━━━━━━━━━━━━━━━━━━━━━━━\n'
-                '😴 No signals this month\n'
-                '<i>VIP Crypto Signal Bot v2.0</i>'
-            )
-        wins    = [s for s in signals if s.get('pnl_percent', 0) > 0]
-        wr      = len(wins) / len(signals) * 100
-        tot_pct = sum(s.get('pnl_percent', 0) for s in signals)
-        tot_usd = sum(s.get('pnl_usdt',   0) for s in signals)
-        wk_txt  = ''
-        best_w_pnl = float('-inf'); best_w = ''
-        worst_w_pnl = float('inf'); worst_w = ''
-        for wl, ws in weekly.items():
-            wp = sum(s.get('pnl_percent', 0) for s in ws)
-            e  = '📈' if wp >= 0 else '📉'
-            wk_txt += f'  {e} {wl}: {wp:+.2f}% ({len(ws)} trades)\n'
-            if wp > best_w_pnl:  best_w_pnl  = wp; best_w  = wl
-            if wp < worst_w_pnl: worst_w_pnl = wp; worst_w = wl
-        return (
-            f'📊 <b>MONTHLY REPORT</b>  |  {month.strftime("%B %Y")}\n'
-            f'━━━━━━━━━━━━━━━━━━━━━━━\n'
-            f'📈 Trades: <b>{len(signals)}</b>  ✅ {len(wins)}  ❌ {len(signals)-len(wins)}\n'
-            f'🎯 Win Rate: <b>{wr:.1f}%</b>\n'
-            f'━━━━━━━━━━━━━━━━━━━━━━━\n'
-            f'💰 PnL: <code>{tot_pct:+.2f}%</code>  (<code>{tot_usd:+.2f} USDT</code>)\n'
-            f'━━━━━━━━━━━━━━━━━━━━━━━\n'
-            f'📅 <b>Weekly Breakdown:</b>\n{wk_txt}'
-            f'━━━━━━━━━━━━━━━━━━━━━━━\n'
-            f'🏆 Best Week : {best_w}  {best_w_pnl:+.2f}%\n'
-            f'💔 Worst Week: {worst_w}  {worst_w_pnl:+.2f}%\n'
-            f'━━━━━━━━━━━━━━━━━━━━━━━\n'
-            f'🤖 <i>VIP Crypto Signal Bot v2.0</i>'
+            f'<b>━━━━━━━━━━━━━━━━━━━━━━━</b>\n'
+            f'🤖 <i>VIP Crypto Signal Bot v3.0</i>'
         )
 
 
@@ -1427,39 +1276,42 @@ class TelegramFormatter:
 class CryptoSignalBot:
 
     def __init__(self) -> None:
-        self.db       = DatabaseManager()
-        self.ta       = TechnicalAnalysisEngine()
-        self.smc      = SmartMoneyConcepts()
-        self.mtf      = MultiTimeframeAnalysis()
-        self.ai       = AIEngine(self.db)
-        self.rm       = RiskManager()
-        self.fmt      = TelegramFormatter()
-        self.scorer   = SignalScoringEngine(self.ai)
-        self.tg       = Bot(token=TELEGRAM_TOKEN)
+        self.db      = DatabaseManager()
+        self.ta      = TechnicalAnalysisEngine()
+        self.smc_eng = SmartMoneyConcepts()
+        self.mtf_eng = MultiTimeframeAnalysis()
+        self.ai      = AIEngine(self.db)
+        self.rm      = RiskManager()
+        self.fmt     = TelegramFormatter()
+        self.scorer  = SignalScoringEngine(self.ai)
+        self.tg      = Bot(token=TELEGRAM_TOKEN)
 
         self.exchange = ccxt_async.binance({
             **API_CONFIG,
             'enableRateLimit': True,
-            'timeout': 30000,
+            'timeout'        : 30000,
         })
 
-        self.account_balance     = INITIAL_ACCOUNT_BALANCE
-        self.last_daily_report:   Optional[str] = None
-        self.last_weekly_report:  Optional[str] = None
-        self.last_monthly_report: Optional[str] = None
+        self.account_balance    = INITIAL_ACCOUNT_BALANCE
+        self.last_daily_report:  Optional[str] = None
+        self.last_weekly_report: Optional[str] = None
 
-        self._cooldowns: Dict[str, datetime] = {}
+        self._cooldowns:    Dict[str, datetime]            = {}
         self._ticker_cache: Dict[str, Tuple[float, float]] = {}
         self._CACHE_TTL = 30  # seconds
 
-        logger.info('CryptoSignalBot ready')
+        logger.info('CryptoSignalBot (v3.0 Sniper) initialised')
 
-    # ── Telegram helpers ────────────────────────────────────
-    async def _send(self, text: str, reply_to_message_id: Optional[int] = None) -> Optional[int]:
+    # Telegram helpers
+    async def _send(self, text: str,
+                    reply_to_message_id: Optional[int] = None) -> Optional[int]:
+        """Send a Telegram message and return its message_id for reply threading."""
         try:
             msg = await self.tg.send_message(
-                chat_id=TELEGRAM_CHAT_ID, text=text,
-                parse_mode=ParseMode.HTML, disable_web_page_preview=True,
+                chat_id=TELEGRAM_CHAT_ID,
+                text=text,
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True,
                 reply_to_message_id=reply_to_message_id,
             )
             return msg.message_id
@@ -1467,18 +1319,9 @@ class CryptoSignalBot:
             logger.error('Telegram send error: %s', exc)
             return None
 
-    async def _edit(self, msg_id: int, text: str) -> bool:
-        try:
-            await self.tg.edit_message_text(
-                chat_id=TELEGRAM_CHAT_ID, message_id=msg_id, text=text,
-                parse_mode=ParseMode.HTML, disable_web_page_preview=True,
-            )
-            return True
-        except TelegramError:
-            return False
-
-    # ── Exchange helpers ─────────────────────────────────────
-    async def _fetch_ohlcv(self, symbol: str, tf: str, limit: int = 500) -> Optional[pd.DataFrame]:
+    # Exchange helpers
+    async def _fetch_ohlcv(self, symbol: str, tf: str,
+                           limit: int = 500) -> Optional[pd.DataFrame]:
         try:
             raw = await self.exchange.fetch_ohlcv(symbol, tf, limit=limit)
             if not raw or len(raw) < 50:
@@ -1554,7 +1397,7 @@ class CryptoSignalBot:
         base = symbol.split('/')[0].split(':')[0]
         return sum(1 for s in active if s['symbol'].split('/')[0].split(':')[0] == base)
 
-    # ── Full symbol analysis ─────────────────────────────────
+    # Full symbol analysis
     async def _analyze(self, symbol: str) -> Optional[Dict]:
         try:
             df = await self._fetch_ohlcv(symbol, '1h', 500)
@@ -1570,27 +1413,27 @@ class CryptoSignalBot:
             if close <= 0 or atr <= 0 or np.isnan(close) or np.isnan(atr):
                 return None
 
-            # MTF
+            # Multi-timeframe scores
             mtf_scores: Dict[str, float] = {}
             for tf in ['15m', '4h', '1d']:
                 mtf_df = await self._fetch_ohlcv(symbol, tf, 250)
-                mtf_scores[tf] = self.mtf.get_trend_score(mtf_df)
+                mtf_scores[tf] = self.mtf_eng.get_trend_score(mtf_df)
                 await asyncio.sleep(0.15)
 
-            # SMC
+            # Smart Money Concepts
             smc_data = {
-                'order_blocks'    : self.smc.detect_order_blocks(df),
-                'fair_value_gaps' : self.smc.detect_fair_value_gaps(df),
-                'liquidity_zones' : self.smc.detect_liquidity_zones(df),
-                'market_structure': self.smc.detect_market_structure(df),
-                'divergence'      : self.smc.detect_rsi_divergence(df),
+                'order_blocks'    : self.smc_eng.detect_order_blocks(df),
+                'fair_value_gaps' : self.smc_eng.detect_fair_value_gaps(df),
+                'liquidity_zones' : self.smc_eng.detect_liquidity_zones(df),
+                'market_structure': self.smc_eng.detect_market_structure(df),
+                'divergence'      : self.smc_eng.detect_rsi_divergence(df),
             }
 
-            funding    = await self._funding(symbol)
-            ob_imbal   = await self._ob_imbalance(symbol)
+            funding  = await self._funding(symbol)
+            ob_imbal = await self._ob_imbalance(symbol)
 
-            ob_score = (smc_data['order_blocks'].get('bull_ob_score', 0)
-                        - smc_data['order_blocks'].get('bear_ob_score', 0))
+            ob_score  = (smc_data['order_blocks'].get('bull_ob_score', 0)
+                         - smc_data['order_blocks'].get('bear_ob_score', 0))
             fvg_score = (smc_data['fair_value_gaps'].get('bull_fvg_score', 0)
                          - smc_data['fair_value_gaps'].get('bear_fvg_score', 0))
             liq_score = (smc_data['liquidity_zones'].get('bull_liq_score', 0)
@@ -1615,12 +1458,14 @@ class CryptoSignalBot:
                 'mtf_trend_1d'      : float(mtf_scores.get('1d',  0)),
                 'funding_rate'      : float(funding),
             }
-            # Sanitise
-            features = {k: (float(np.nan_to_num(v, 0.0)) if isinstance(v, float) else v)
-                        for k, v in features.items()}
+            # Sanitise NaN / Inf values
+            features = {
+                k: (float(np.nan_to_num(v, 0.0)) if isinstance(v, float) else v)
+                for k, v in features.items()
+            }
 
-            best_sig:   Optional[Dict] = None
-            best_conf   = 0.0
+            best_sig:  Optional[Dict] = None
+            best_conf  = 0.0
 
             for direction in ('LONG', 'SHORT'):
                 conf, agr, reas = self.scorer.score(
@@ -1650,6 +1495,7 @@ class CryptoSignalBot:
                         'funding_rate' : funding,
                         'features'     : features,
                         'atr'          : atr,
+                        'leverage'     : LEVERAGE,
                     }
 
             return best_sig
@@ -1658,7 +1504,7 @@ class CryptoSignalBot:
             logger.debug('_analyze %s error: %s', symbol, exc)
             return None
 
-    # ── Trade monitor ────────────────────────────────────────
+    # Trade monitor
     async def _monitor_trades(self) -> None:
         for sig in await self.db.get_active_signals():
             try:
@@ -1666,31 +1512,34 @@ class CryptoSignalBot:
                 if price is None:
                     continue
 
-                entry     = float(sig['entry'])
-                direction = sig['direction']
-                sl        = float(sig['sl'])
-                tp1       = float(sig['tp1'])
-                tp2       = float(sig['tp2'])
-                tp3       = float(sig['tp3'])
-                is_long   = direction == 'LONG'
+                entry       = float(sig['entry'])
+                direction   = sig['direction']
+                sl          = float(sig['sl'])
+                tp1         = float(sig['tp1'])
+                tp2         = float(sig['tp2'])
+                tp3         = float(sig['tp3'])
+                is_long     = direction == 'LONG'
                 orig_msg_id: Optional[int] = sig.get('telegram_msg_id')
 
-                raw_pnl   = (price - entry) / entry if is_long else (entry - price) / entry
-                pnl_pct   = raw_pnl * 100 * LEVERAGE
-                pnl_usd   = float(sig.get('position_size', 100)) * raw_pnl * LEVERAGE
-                updates   = {'pnl_percent': pnl_pct, 'pnl_usdt': pnl_usd}
+                raw_pnl = (price - entry) / entry if is_long else (entry - price) / entry
+                pnl_pct = raw_pnl * 100 * LEVERAGE
+                pnl_usd = float(sig.get('position_size', 100)) * raw_pnl * LEVERAGE
+                updates = {'pnl_percent': pnl_pct, 'pnl_usdt': pnl_usd}
                 if pnl_pct > float(sig.get('max_pnl_reached', 0)):
                     updates['max_pnl_reached'] = pnl_pct
 
-                # ── SL hit ─────────────────────────────────
-                sl_hit = (is_long and price <= sl) or (not is_long and price >= sl)
-                if sl_hit:
-                    updates.update(status='CLOSED_SL', exit_price=price,
-                                   closed_at=datetime.now(AFG_TZ).isoformat())
-                    updates.update(pnl_percent=pnl_pct, pnl_usdt=pnl_usd)
+                # SL hit
+                if (is_long and price <= sl) or (not is_long and price >= sl):
+                    updates.update(
+                        status='CLOSED_SL', exit_price=price,
+                        closed_at=datetime.now(AFG_TZ).isoformat(),
+                        pnl_percent=pnl_pct, pnl_usdt=pnl_usd,
+                    )
                     await self.db.update_signal(sig['id'], updates)
-                    await self._send(self.fmt.sl_hit(sig, price, pnl_pct),
-                                     reply_to_message_id=orig_msg_id)
+                    await self._send(
+                        self.fmt.sl_hit(sig, price, pnl_pct),
+                        reply_to_message_id=orig_msg_id,
+                    )
                     try:
                         feat = json.loads(sig.get('features', '{}'))
                         await self.db.save_ai_data(feat, -1 if is_long else 1)
@@ -1698,15 +1547,18 @@ class CryptoSignalBot:
                         pass
                     continue
 
-                # ── TP3 ────────────────────────────────────
-                tp3_hit = (is_long and price >= tp3) or (not is_long and price <= tp3)
-                if tp3_hit:
-                    updates.update(tp3_hit=1, status='CLOSED_TP3',
-                                   exit_price=price, closed_at=datetime.now(AFG_TZ).isoformat(),
-                                   pnl_percent=pnl_pct, pnl_usdt=pnl_usd)
+                # TP3 hit — close position
+                if (is_long and price >= tp3) or (not is_long and price <= tp3):
+                    updates.update(
+                        tp3_hit=1, status='CLOSED_TP3',
+                        exit_price=price, closed_at=datetime.now(AFG_TZ).isoformat(),
+                        pnl_percent=pnl_pct, pnl_usdt=pnl_usd,
+                    )
                     await self.db.update_signal(sig['id'], updates)
-                    await self._send(self.fmt.tp_hit(sig, 3, price, pnl_pct),
-                                     reply_to_message_id=orig_msg_id)
+                    await self._send(
+                        self.fmt.tp_hit(sig, 3, price, pnl_pct),
+                        reply_to_message_id=orig_msg_id,
+                    )
                     try:
                         feat = json.loads(sig.get('features', '{}'))
                         await self.db.save_ai_data(feat, 1 if is_long else -1)
@@ -1714,87 +1566,50 @@ class CryptoSignalBot:
                         pass
                     continue
 
-                # ── TP2 ────────────────────────────────────
-                tp2_hit = (is_long and price >= tp2) or (not is_long and price <= tp2)
-                if tp2_hit and not sig.get('tp2_hit'):
+                # TP2 hit
+                if ((is_long and price >= tp2) or (not is_long and price <= tp2)) \
+                        and not sig.get('tp2_hit'):
                     updates['tp2_hit'] = 1
                     await self.db.update_signal(sig['id'], updates)
-                    await self._send(self.fmt.tp_hit(sig, 2, price, pnl_pct),
-                                     reply_to_message_id=orig_msg_id)
+                    await self._send(
+                        self.fmt.tp_hit(sig, 2, price, pnl_pct),
+                        reply_to_message_id=orig_msg_id,
+                    )
 
-                # ── TP1 ────────────────────────────────────
-                tp1_hit = (is_long and price >= tp1) or (not is_long and price <= tp1)
-                if tp1_hit and not sig.get('tp1_hit'):
+                # TP1 hit
+                if ((is_long and price >= tp1) or (not is_long and price <= tp1)) \
+                        and not sig.get('tp1_hit'):
                     updates['tp1_hit'] = 1
                     await self.db.update_signal(sig['id'], updates)
-                    await self._send(self.fmt.tp_hit(sig, 1, price, pnl_pct),
-                                     reply_to_message_id=orig_msg_id)
-
-                # ── Breakeven ──────────────────────────────
-                if not sig.get('breakeven_moved'):
-                    dist_done = abs(price - entry)
-                    dist_tp1  = abs(tp1 - entry)
-                    if dist_done >= dist_tp1 * 0.40:
-                        updates['breakeven_moved'] = 1
-                        updates['sl']              = entry
-                        await self.db.update_signal(sig['id'], updates)
-                        await self._send(self.fmt.breakeven(sig),
-                                         reply_to_message_id=orig_msg_id)
-                        continue
-
-                # ── Trailing stop ─────────────────────────
-                if pnl_pct > 3.0:
-                    atr_val      = float(sig.get('atr', abs(entry - float(sig.get('original_sl', sl))) / 1.5))
-                    trail_dist   = atr_val * 0.5
-                    cur_trail_sl = float(sig.get('trailing_sl') or sl)
-                    if is_long:
-                        new_tsl = price - trail_dist
-                        if new_tsl > cur_trail_sl:
-                            updates.update(trailing_active=1, trailing_sl=new_tsl, sl=new_tsl)
-                            await self.db.update_signal(sig['id'], updates)
-                            if sig.get('trailing_active'):
-                                await self._send(self.fmt.trailing_update(sig, new_tsl),
-                                                 reply_to_message_id=orig_msg_id)
-                            continue
-                    else:
-                        new_tsl = price + trail_dist
-                        if new_tsl < cur_trail_sl:
-                            updates.update(trailing_active=1, trailing_sl=new_tsl, sl=new_tsl)
-                            await self.db.update_signal(sig['id'], updates)
-                            if sig.get('trailing_active'):
-                                await self._send(self.fmt.trailing_update(sig, new_tsl),
-                                                 reply_to_message_id=orig_msg_id)
-                            continue
+                    await self._send(
+                        self.fmt.tp_hit(sig, 1, price, pnl_pct),
+                        reply_to_message_id=orig_msg_id,
+                    )
 
                 await self.db.update_signal(sig['id'], updates)
 
             except Exception as exc:
                 logger.error('monitor trade %s: %s', sig.get('id'), exc)
 
-    # ── Reports ─────────────────────────────────────────────
+    # Reports
     async def _check_reports(self) -> None:
         now = datetime.now(AFG_TZ)
-        # Daily at 23:xx AFT
+
+        # Daily report at 23:00-23:04 AFT
         if now.hour == 23 and now.minute < 5:
             ds = now.strftime('%Y-%m-%d')
             if self.last_daily_report != ds:
                 await self._send_daily(now)
                 self.last_daily_report = ds
                 await self.db.set_state('last_daily_report', ds)
-        # Weekly on Friday 23:xx
+
+        # Weekly report on Friday 23:00-23:04 AFT
         if now.weekday() == 4 and now.hour == 23 and now.minute < 5:
             ws = now.strftime('%Y-W%W')
             if self.last_weekly_report != ws:
                 await self._send_weekly(now)
                 self.last_weekly_report = ws
                 await self.db.set_state('last_weekly_report', ws)
-        # Monthly on 1st 23:xx
-        if now.day == 1 and now.hour == 23 and now.minute < 5:
-            ms = now.strftime('%Y-%m')
-            if self.last_monthly_report != ms:
-                await self._send_monthly(now)
-                self.last_monthly_report = ms
-                await self.db.set_state('last_monthly_report', ms)
 
     async def _send_daily(self, now: datetime) -> None:
         start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -1816,72 +1631,44 @@ class CryptoSignalBot:
         await self._send(self.fmt.weekly_report(sigs, start, now, dict(daily)))
         logger.info('Weekly report sent')
 
-    async def _send_monthly(self, now: datetime) -> None:
-        end   = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        start = (end - timedelta(days=1)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        sigs  = await self.db.get_signals_by_period(start, end)
-        weekly: Dict[str, List] = defaultdict(list)
-        for s in sigs:
-            try:
-                wn = datetime.fromisoformat(s['created_at']).isocalendar()[1]
-                weekly[f'Week {wn}'].append(s)
-            except Exception:
-                pass
-        await self._send(self.fmt.monthly_report(sigs, start, dict(weekly)))
-        logger.info('Monthly report sent')
-
-    # ── AI retraining ────────────────────────────────────────
+    # AI retraining
     async def _retrain_if_needed(self) -> None:
         if self.ai.needs_retraining():
-            logger.info('Starting AI retraining …')
+            logger.info('Starting AI retraining ...')
             success = await self.ai.train()
             if success:
                 logger.info('AI retrained  accuracy=%.3f', self.ai.accuracy)
 
-    # ── Main loop ────────────────────────────────────────────
+    # Main loop
     async def run(self) -> None:
         logger.info('=' * 60)
-        logger.info('VIP Crypto Signal Bot v2.0 Starting …')
+        logger.info('VIP Crypto Signal Bot v3.0 - Sniper Mode Starting ...')
         logger.info('=' * 60)
 
-        # Initialise DB schema and load persisted state
         await self.db.init_db()
-        self.account_balance     = await self.db.get_state('account_balance', INITIAL_ACCOUNT_BALANCE)
-        self.last_daily_report   = await self.db.get_state('last_daily_report',   None)
-        self.last_weekly_report  = await self.db.get_state('last_weekly_report',  None)
-        self.last_monthly_report = await self.db.get_state('last_monthly_report', None)
-
-        await self._send(
-            '🚀 <b>VIP Crypto Signal Bot v2.0 Started!</b>\n'
-            '━━━━━━━━━━━━━━━━━━━━━━━\n'
-            '✅ Scanning ALL Binance USDT Futures\n'
-            '🤖 AI Engine: Active\n'
-            '📊 16+ Technical Indicators: Active\n'
-            '💎 Smart Money Concepts: Active\n'
-            '⏱ Multi-Timeframe Analysis: Active\n'
-            '⏰ Afghanistan TZ Reports: Active\n'
-            '━━━━━━━━━━━━━━━━━━━━━━━\n'
-            '🔍 Starting market scan …'
-        )
+        self.account_balance    = await self.db.get_state('account_balance', INITIAL_ACCOUNT_BALANCE)
+        self.last_daily_report  = await self.db.get_state('last_daily_report',  None)
+        self.last_weekly_report = await self.db.get_state('last_weekly_report', None)
 
         cycle = 0
         try:
             while True:
                 try:
                     cycle += 1
-                    logger.info('── Cycle #%d ──────────────────────────', cycle)
+                    logger.info('-- Cycle #%d --', cycle)
 
-                    # Phase 1 – AI retraining
+                    # Phase 1: AI retraining
                     await self._retrain_if_needed()
 
-                    # Phase 2 – Signal generation
+                    # Phase 2: Signal generation
                     if await self._active_count() < MAX_OPEN_TRADES:
                         symbols = await self._futures_symbols()
                         if symbols:
-                            # Shuffle symbols to distribute API load fairly across the
-                            # full universe; avoids always analysing the same symbols first.
                             random.shuffle(symbols)
-                            logger.info('Scanning %d symbols …', len(symbols))
+                            logger.info(
+                                'Scanning %d symbols (Sniper: conf>=%d%%, agreements>=%d) ...',
+                                len(symbols), MIN_CONFIDENCE, MIN_AGREEMENTS,
+                            )
                             emitted = 0
 
                             for symbol in symbols:
@@ -1901,7 +1688,8 @@ class CryptoSignalBot:
                                             continue
                                         msg_id = await self._send(self.fmt.signal(sig, sig_id))
                                         if msg_id:
-                                            await self.db.update_signal(sig_id, {'telegram_msg_id': msg_id})
+                                            await self.db.update_signal(
+                                                sig_id, {'telegram_msg_id': msg_id})
                                         self._cooldowns[symbol] = datetime.now()
                                         emitted += 1
                                         await self.db.save_ai_data(
@@ -1918,20 +1706,19 @@ class CryptoSignalBot:
                                     logger.debug('analyze %s: %s', symbol, exc)
                                     await asyncio.sleep(0.5)
 
-                            logger.info('Cycle #%d → emitted %d signals', cycle, emitted)
+                            logger.info('Cycle #%d -> emitted %d signals', cycle, emitted)
 
-                    # Phase 3 – Trade monitoring
+                    # Phase 3: Trade monitoring
                     await self._monitor_trades()
 
-                    # Phase 4 – Reports
+                    # Phase 4: Reports
                     await self._check_reports()
 
-                    logger.info('Cycle #%d done — sleeping %ds', cycle, SCAN_INTERVAL)
+                    logger.info('Cycle #%d done -- sleeping %ds', cycle, SCAN_INTERVAL)
                     await asyncio.sleep(SCAN_INTERVAL)
 
                 except KeyboardInterrupt:
                     logger.info('Bot stopped by user')
-                    await self._send('⛔ <b>Bot stopped by operator</b>')
                     break
                 except Exception as exc:
                     logger.error('Main loop error: %s\n%s', exc, traceback.format_exc())
