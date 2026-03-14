@@ -1580,6 +1580,10 @@ class CryptoSignalBot:
                 if ((is_long and price >= tp1) or (not is_long and price <= tp1)) \
                         and not sig.get('tp1_hit'):
                     updates['tp1_hit'] = 1
+                    # Move SL to breakeven (entry price) once TP1 is reached
+                    if not sig.get('breakeven_moved'):
+                        updates['sl'] = entry
+                        updates['breakeven_moved'] = 1
                     await self.db.update_signal(sig['id'], updates)
                     await self._send(
                         self.fmt.tp_hit(sig, 1, price, pnl_pct),
