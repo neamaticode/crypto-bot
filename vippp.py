@@ -428,8 +428,8 @@ class TechnicalAnalysisEngine:
             df['volume_ratio'] = (df['volume'] / vol_sma).fillna(1)
 
             # VWAP (session approximation)
-            tp_col = (df['high'] + df['low'] + df['close']) / 3
-            df['vwap'] = (tp_col * df['volume']).cumsum() / (df['volume'].cumsum() + EPSILON)
+            typical_price = (df['high'] + df['low'] + df['close']) / 3
+            df['vwap'] = (typical_price * df['volume']).cumsum() / (df['volume'].cumsum() + EPSILON)
 
             # Ichimoku Cloud
             try:
@@ -654,10 +654,10 @@ class SmartMoneyConcepts:
                 rsi = float(recent['rsi'].iloc[i])
                 if np.isnan(c) or np.isnan(rsi):
                     continue
-                ph = [recent['close'].iloc[i+j] for j in (-2, -1, 1, 2)]
-                if c > max(ph):
+                neighbors = [recent['close'].iloc[i+j] for j in (-2, -1, 1, 2)]
+                if c > max(neighbors):
                     price_highs.append((i, c)); rsi_highs.append((i, rsi))
-                if c < min(ph):
+                if c < min(neighbors):
                     price_lows.append((i, c));  rsi_lows.append((i, rsi))
 
             if len(price_highs) >= 2 and len(rsi_highs) >= 2:
@@ -1688,8 +1688,7 @@ class CryptoSignalBot:
                                             continue
                                         msg_id = await self._send(self.fmt.signal(sig, sig_id))
                                         if msg_id:
-                                            await self.db.update_signal(
-                                                sig_id, {'telegram_msg_id': msg_id})
+                                            await self.db.update_signal(sig_id, {'telegram_msg_id': msg_id})
                                         self._cooldowns[symbol] = datetime.now()
                                         emitted += 1
                                         await self.db.save_ai_data(
