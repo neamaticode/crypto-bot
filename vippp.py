@@ -1,4 +1,7 @@
+ copilot/update-telegram-message-format
+
 # -*- coding: utf-8 -*-
+ main
 """
 VIP Crypto Signal Bot v2.0 — Ultra Professional Edition
 =========================================================
@@ -52,6 +55,10 @@ import json
 import logging
 import os
 import random
+ copilot/update-telegram-message-format
+import re
+
+ main
 import sys
 import time
 import traceback
@@ -1087,6 +1094,62 @@ class TelegramFormatter:
         except Exception:
             return '❓ Unknown'
 
+ copilot/update-telegram-message-format
+    @staticmethod
+    def _parse_symbol(raw: str) -> str:
+        """Convert exchange symbol to hashtag form.
+
+        Examples::
+            'DRIFT/USDT:USDT' → '#DRIFTUSDT'
+            'BTC/USDT'        → '#BTCUSDT'
+        """
+        # Drop the settlement suffix (everything from ':' onward), if present
+        base = raw.split(':')[0]
+        # Remove the '/' separator
+        return '#' + base.replace('/', '')
+
+    # ── Signal ──────────────────────────────────────────────
+    @staticmethod
+    def signal(sig: Dict, sig_id: int) -> str:
+        d       = sig['direction']
+        is_long = d == 'LONG'
+        setup   = '📈 LONG SETUP'  if is_long else '📉 SHORT SETUP'
+        market  = '📈 Upward'      if is_long else '📉 Downward'
+        conf    = sig['confidence']
+        entry   = sig['entry']
+        sl      = sig['sl']
+        tp1     = sig['tp1']; tp2 = sig['tp2']; tp3 = sig['tp3']
+        symbol  = TelegramFormatter._parse_symbol(sig['symbol'])
+        reas    = sig.get('reasons', [])
+        if isinstance(reas, str):
+            reas = json.loads(reas)
+        # Build a concise catalyst line from the top reasons
+        # Strip leading emoji/punctuation characters using a regex so only
+        # the descriptive text is shown (handles ✅, ⚠️, etc.)
+        catalyst = '; '.join(
+            re.sub(r'^[^\w(]+', '', r) for r in reas[:3]
+        ) if reas else 'Strong MTF Confirmation & Market Structure Break.'
+        lev = sig.get('leverage', LEVERAGE)
+        return (
+            f'{setup}: <b>{symbol}</b>\n'
+            f'━━━━━━━━━━━━━━━━━━━━\n'
+            f'🔻 Entry Zone : <code>{entry:.4f}</code>\n'
+            f'⛔️ Stop Loss  : <code>{sl:.4f}</code>\n'
+            f'\n'
+            f'🎯 Take Profit Targets:\n'
+            f'• TP1: <code>{tp1:.4f}</code> (Safe)\n'
+            f'• TP2: <code>{tp2:.4f}</code> (Mid)\n'
+            f'• TP3: <code>{tp3:.4f}</code> (Max)\n'
+            f'\n'
+            f'📐 Trade Info:\n'
+            f'Leverage: {lev}x\n'
+            f'Win Prob: {conf:.0f}%\n'
+            f'Market:   {market}\n'
+            f'\n'
+            f'💡 Signal Catalyst:\n'
+            f'{catalyst}\n'
+            f'\n'
+
     # ── Signal ──────────────────────────────────────────────
     @staticmethod
     def signal(sig: Dict, sig_id: int) -> str:
@@ -1125,12 +1188,16 @@ class TelegramFormatter:
             f'Market:   {regime}\n\n'
             f'💡 <b>Signal Catalyst:</b>\n'
             f'{reas_txt}.\n\n'
+ main
             f'@NovaCryptoSignal'
         )
 
     @staticmethod
     def tp_hit(sig: Dict, tp_num: int, price: float, pnl: float) -> str:
+ copilot/update-telegram-message-format
+
  copilot/fix-telegram-message-format
+ main
         e = {1: '🥇', 2: '🥈', 3: '🏆'}.get(tp_num, '🎯')
         return (
             f'{e} <b>TP{tp_num} HIT!</b> {e}\n'
@@ -1139,6 +1206,8 @@ class TelegramFormatter:
             f'💰 Price: <code>${price:.4f}</code>\n'
             f'📊 Profit: <code>+{pnl:.2f}%</code>\n'
             f'🎉 Signal #{sig["id"]:04d} — Congratulations!'
+ copilot/update-telegram-message-format
+
 
         raw_sym = sig['symbol']
         clean_sym = f"#{raw_sym.split(':')[0].replace('/', '')}"
@@ -1151,11 +1220,15 @@ class TelegramFormatter:
             f'\n'
             f'@NovaCryptoSignal'
  main
+ main
         )
 
     @staticmethod
     def sl_hit(sig: Dict, price: float, pnl: float) -> str:
+ copilot/update-telegram-message-format
+
  copilot/fix-telegram-message-format
+ main
         return (
             f'🛑 <b>STOP LOSS HIT</b>\n'
             f'━━━━━━━━━━━━━━━━\n'
@@ -1164,6 +1237,8 @@ class TelegramFormatter:
             f'📉 Loss: <code>{pnl:.2f}%</code>\n'
             f'🔄 Signal #{sig["id"]:04d} closed\n'
             f'<i>Cut losses, preserve capital 💪</i>'
+ copilot/update-telegram-message-format
+
 
         raw_sym = sig['symbol']
         clean_sym = f"#{raw_sym.split(':')[0].replace('/', '')}"
@@ -1176,15 +1251,21 @@ class TelegramFormatter:
             f'\n'
             f'@NovaCryptoSignal'
  main
+ main
         )
 
     @staticmethod
     def breakeven(sig: Dict) -> str:
+ copilot/update-telegram-message-format
+
  copilot/fix-telegram-message-format
+ main
         return (
             f'🔐 <b>BREAKEVEN ACTIVATED</b>\n'
             f'━━━━━━━━━━━━━━━━\n'
             f'🎯 <b>{sig["symbol"]}</b>  {sig["direction"]}\n'
+ copilot/update-telegram-message-format
+
 
         raw_sym = sig['symbol']
         clean_sym = f"#{raw_sym.split(':')[0].replace('/', '')}"
@@ -1193,17 +1274,23 @@ class TelegramFormatter:
             f'━━━━━━━━━━━━━━━━\n'
             f'🎯 <b>{clean_sym}</b>  {sig["direction"]}\n'
  main
+ main
             f'✅ SL moved to entry: <code>${sig["entry"]:.4f}</code>\n'
             f'🛡 <b>Risk-free trade!</b>  Signal #{sig["id"]:04d}'
         )
 
     @staticmethod
     def trailing_update(sig: Dict, new_sl: float) -> str:
+ copilot/update-telegram-message-format
+
  copilot/fix-telegram-message-format
+ main
         return (
             f'📡 <b>TRAILING STOP UPDATE</b>\n'
             f'━━━━━━━━━━━━━━━━\n'
             f'🎯 <b>{sig["symbol"]}</b>  {sig["direction"]}\n'
+ copilot/update-telegram-message-format
+
 
         raw_sym = sig['symbol']
         clean_sym = f"#{raw_sym.split(':')[0].replace('/', '')}"
@@ -1211,6 +1298,7 @@ class TelegramFormatter:
             f'📡 <b>TRAILING STOP UPDATE</b>\n'
             f'━━━━━━━━━━━━━━━━\n'
             f'🎯 <b>{clean_sym}</b>  {sig["direction"]}\n'
+ main
  main
             f'🔄 New SL: <code>${new_sl:.4f}</code>\n'
             f'🛡 Protecting profits  Signal #{sig["id"]:04d}'
