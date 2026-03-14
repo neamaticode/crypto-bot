@@ -1130,6 +1130,16 @@ class TelegramFormatter:
 
     @staticmethod
     def tp_hit(sig: Dict, tp_num: int, price: float, pnl: float) -> str:
+ copilot/fix-telegram-message-format
+        e = {1: '🥇', 2: '🥈', 3: '🏆'}.get(tp_num, '🎯')
+        return (
+            f'{e} <b>TP{tp_num} HIT!</b> {e}\n'
+            f'━━━━━━━━━━━━━━━━\n'
+            f'🎯 <b>{sig["symbol"]}</b>  {sig["direction"]}\n'
+            f'💰 Price: <code>${price:.4f}</code>\n'
+            f'📊 Profit: <code>+{pnl:.2f}%</code>\n'
+            f'🎉 Signal #{sig["id"]:04d} — Congratulations!'
+
         raw_sym = sig['symbol']
         clean_sym = f"#{raw_sym.split(':')[0].replace('/', '')}"
         return (
@@ -1140,10 +1150,21 @@ class TelegramFormatter:
             f'Profit: +{pnl:.1f}%\n'
             f'\n'
             f'@NovaCryptoSignal'
+ main
         )
 
     @staticmethod
     def sl_hit(sig: Dict, price: float, pnl: float) -> str:
+ copilot/fix-telegram-message-format
+        return (
+            f'🛑 <b>STOP LOSS HIT</b>\n'
+            f'━━━━━━━━━━━━━━━━\n'
+            f'📊 <b>{sig["symbol"]}</b>  {sig["direction"]}\n'
+            f'💔 Price: <code>${price:.4f}</code>\n'
+            f'📉 Loss: <code>{pnl:.2f}%</code>\n'
+            f'🔄 Signal #{sig["id"]:04d} closed\n'
+            f'<i>Cut losses, preserve capital 💪</i>'
+
         raw_sym = sig['symbol']
         clean_sym = f"#{raw_sym.split(':')[0].replace('/', '')}"
         return (
@@ -1154,28 +1175,43 @@ class TelegramFormatter:
             f'Risk managed successfully.\n'
             f'\n'
             f'@NovaCryptoSignal'
+ main
         )
 
     @staticmethod
     def breakeven(sig: Dict) -> str:
+ copilot/fix-telegram-message-format
+        return (
+            f'🔐 <b>BREAKEVEN ACTIVATED</b>\n'
+            f'━━━━━━━━━━━━━━━━\n'
+            f'🎯 <b>{sig["symbol"]}</b>  {sig["direction"]}\n'
+
         raw_sym = sig['symbol']
         clean_sym = f"#{raw_sym.split(':')[0].replace('/', '')}"
         return (
             f'🔐 <b>BREAKEVEN ACTIVATED</b>\n'
             f'━━━━━━━━━━━━━━━━\n'
             f'🎯 <b>{clean_sym}</b>  {sig["direction"]}\n'
+ main
             f'✅ SL moved to entry: <code>${sig["entry"]:.4f}</code>\n'
             f'🛡 <b>Risk-free trade!</b>  Signal #{sig["id"]:04d}'
         )
 
     @staticmethod
     def trailing_update(sig: Dict, new_sl: float) -> str:
+ copilot/fix-telegram-message-format
+        return (
+            f'📡 <b>TRAILING STOP UPDATE</b>\n'
+            f'━━━━━━━━━━━━━━━━\n'
+            f'🎯 <b>{sig["symbol"]}</b>  {sig["direction"]}\n'
+
         raw_sym = sig['symbol']
         clean_sym = f"#{raw_sym.split(':')[0].replace('/', '')}"
         return (
             f'📡 <b>TRAILING STOP UPDATE</b>\n'
             f'━━━━━━━━━━━━━━━━\n'
             f'🎯 <b>{clean_sym}</b>  {sig["direction"]}\n'
+ main
             f'🔄 New SL: <code>${new_sl:.4f}</code>\n'
             f'🛡 Protecting profits  Signal #{sig["id"]:04d}'
         )
